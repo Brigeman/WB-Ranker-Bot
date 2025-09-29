@@ -1,5 +1,9 @@
 Техническое задание + современные принципы программирования для сервиса Wildberries Ranker Bot
 
+Входные данные
+	•	Файл со списком ключевых слов (пример: https://drive.google.com/file/d/12OhUuANklqqtfyjZqleenFxG-DnPPIi6/view?usp=sharing).
+	•	Ссылка на товар Wildberries (пример: https://www.wildberries.ru/catalog/279266291/detail.aspx?targetUrl=MI).
+
 1. Цель проекта
 
 Создать Telegram-бота, который по списку ключевых слов определяет позицию заданного товара в поисковой выдаче Wildberries (до 5 страниц) и возвращает результат в виде таблицы (CSV/XLSX) с указанием:
