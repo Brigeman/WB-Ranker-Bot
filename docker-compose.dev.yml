@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  wb-ranker-bot-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: wb-ranker-bot-dev
+    restart: unless-stopped
+    environment:
+      # Bot configuration
+      - BOT_TOKEN=${BOT_TOKEN}
+      
+      # Development settings
+      - LOG_LEVEL=DEBUG
+      - LOG_FORMAT=text
+      - PYTHONPATH=/app
+      
+      # WB API configuration
+      - WB_API_BASE_URL=${WB_API_BASE_URL:-https://search.wb.ru/exactmatch/ru/common/v4/search}
+      - WB_MAX_PAGES=${WB_MAX_PAGES:-3}
+      - WB_CONCURRENCY_LIMIT=${WB_CONCURRENCY_LIMIT:-2}
+      - WB_REQUEST_TIMEOUT=${WB_REQUEST_TIMEOUT:-10}
+      - WB_RETRY_ATTEMPTS=${WB_RETRY_ATTEMPTS:-2}
+      - WB_BACKOFF_FACTOR=${WB_BACKOFF_FACTOR:-1.5}
+      - WB_DELAY_BETWEEN_REQUESTS=${WB_DELAY_BETWEEN_REQUESTS:-0.1,0.3}
+      
+      # File processing configuration
+      - MAX_KEYWORDS_LIMIT=${MAX_KEYWORDS_LIMIT:-100}
+      - MAX_EXECUTION_TIME_MINUTES=${MAX_EXECUTION_TIME_MINUTES:-10}
+      
+      # Output configuration
+      - OUTPUT_DIRECTORY=${OUTPUT_DIRECTORY:-/app/output}
+    
+    volumes:
+      # Mount source code for hot reload
+      - .:/app
+      # Mount output directory
+      - ./output:/app/output
+      # Mount logs directory
+      - ./logs:/app/logs
+    
+    networks:
+      - wb-ranker-dev-network
+    
+    # Override command for development
+    command: ["python", "-m", "app.bot"]
+    
+    # Port mapping for debugging
+    ports:
+      - "8000:8000"
+
+  # Development database
+  postgres-dev:
+    image: postgres:15-alpine
+    container_name: wb-ranker-postgres-dev
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=wb_ranker_dev
+      - POSTGRES_USER=dev_user
+      - POSTGRES_PASSWORD=dev_password
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+    networks:
+      - wb-ranker-dev-network
+    ports:
+      - "5432:5432"
+
+  # Development Redis
+  redis-dev:
+    image: redis:7-alpine
+    container_name: wb-ranker-redis-dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-dev-data:/data
+    networks:
+      - wb-ranker-dev-network
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres-dev-data:
+    driver: local
+  redis-dev-data:
+    driver: local
+
+networks:
+  wb-ranker-dev-network:
+    driver: bridge
