@@ -145,43 +145,79 @@ class FileLoaderImpl(FileLoader):
     async def _load_from_excel(self, file_path: str) -> List[str]:
         """Load keywords from Excel file."""
         try:
-            # Read Excel file
-            df = pd.read_excel(file_path)
+            # First, check all sheets to find the one with keywords
+            xl = pd.ExcelFile(file_path)
+            self.logger.info(f"Excel file has {len(xl.sheet_names)} sheets: {xl.sheet_names}")
             
-            if df.empty:
-                self.logger.warning("Excel file is empty")
-                return []
-            
-            # Find the column with keywords
+            keywords_sheet = None
             keywords_column = None
             
-            # First, try to find column with header "Ключевое слово" or similar
-            for col in df.columns:
-                col_str = str(col).strip().lower()
-                if any(keyword in col_str for keyword in ['ключевое', 'keyword', 'слово', 'запрос']):
-                    keywords_column = col
-                    self.logger.info(f"Found keywords column: '{col}'")
+            # Look for sheet with keywords
+            for sheet_name in xl.sheet_names:
+                df = pd.read_excel(file_path, sheet_name=sheet_name)
+                if df.empty:
+                    continue
+                
+                # Check if this sheet has a column with keywords
+                for col in df.columns:
+                    col_str = str(col).strip().lower()
+                    if any(keyword in col_str for keyword in ['поисковый', 'запрос', 'keyword', 'ключевое', 'слово']):
+                        # Check if this column has actual keyword data (not just headers)
+                        non_null_values = df[col].dropna()
+                        if len(non_null_values) > 1:  # More than just header
+                            # Check if values look like keywords
+                            sample_values = non_null_values.head(10)
+                            text_like_count = sum(1 for val in sample_values if isinstance(val, str) and len(str(val).strip()) > 2)
+                            if text_like_count >= len(sample_values) * 0.7:  # 70% text-like
+                                keywords_sheet = sheet_name
+                                keywords_column = col
+                                self.logger.info(f"Found keywords in sheet '{sheet_name}', column '{col}' with {len(non_null_values)} values")
+                                break
+                
+                if keywords_sheet:
                     break
             
-            # If not found, look for the first column that contains text data
-            if keywords_column is None:
-                for col in df.columns:
-                    # Check if column contains mostly text data
-                    non_null_count = df[col].notna().sum()
-                    if non_null_count > 0:
-                        # Check if values look like keywords (not numbers, not dates)
-                        sample_values = df[col].dropna().head(5)
-                        if len(sample_values) > 0:
-                            text_like_count = sum(1 for val in sample_values if isinstance(val, str) and len(str(val).strip()) > 2)
-                            if text_like_count >= len(sample_values) * 0.6:  # 60% text-like
-                                keywords_column = col
-                                self.logger.info(f"Using first text-like column: '{col}'")
-                                break
+            # If no keywords sheet found, use first sheet
+            if keywords_sheet is None:
+                keywords_sheet = xl.sheet_names[0]
+                self.logger.warning(f"No keywords sheet found, using first sheet: '{keywords_sheet}'")
             
-            # Fallback to first column
+            # Read the selected sheet
+            df = pd.read_excel(file_path, sheet_name=keywords_sheet)
+            
+            if df.empty:
+                self.logger.warning(f"Sheet '{keywords_sheet}' is empty")
+                return []
+            
+            # If no keywords column found, try to find it
             if keywords_column is None:
-                keywords_column = df.columns[0]
-                self.logger.warning(f"No suitable keywords column found, using first column: '{keywords_column}'")
+                # First, try to find column with header "Ключевое слово" or similar
+                for col in df.columns:
+                    col_str = str(col).strip().lower()
+                    if any(keyword in col_str for keyword in ['ключевое', 'keyword', 'слово', 'запрос']):
+                        keywords_column = col
+                        self.logger.info(f"Found keywords column: '{col}'")
+                        break
+                
+                # If not found, look for the first column that contains text data
+                if keywords_column is None:
+                    for col in df.columns:
+                        # Check if column contains mostly text data
+                        non_null_count = df[col].notna().sum()
+                        if non_null_count > 0:
+                            # Check if values look like keywords (not numbers, not dates)
+                            sample_values = df[col].dropna().head(5)
+                            if len(sample_values) > 0:
+                                text_like_count = sum(1 for val in sample_values if isinstance(val, str) and len(str(val).strip()) > 2)
+                                if text_like_count >= len(sample_values) * 0.6:  # 60% text-like
+                                    keywords_column = col
+                                    self.logger.info(f"Using first text-like column: '{col}'")
+                                    break
+                
+                # Fallback to first column
+                if keywords_column is None:
+                    keywords_column = df.columns[0]
+                    self.logger.warning(f"No suitable keywords column found, using first column: '{keywords_column}'")
             
             # Extract keywords from the found column
             keywords = []
