@@ -166,6 +166,18 @@ class RankingServiceImpl(RankingService):
             # Step 6: Calculate statistics
             self._calculate_statistics(search_results)
             
+            # Check if any products were found
+            if self._stats["successful_searches"] == 0:
+                self.logger.warning("No products found for any keywords!")
+                if self.progress_tracker:
+                    await self.progress_tracker.send_message(
+                        "⚠️ Товар не найден ни по одному ключевому слову.\n"
+                        "Возможные причины:\n"
+                        "• Неправильные ключевые слова в файле\n"
+                        "• Товар не продается на WB\n"
+                        "• Проблемы с API WB"
+                    )
+            
             # Step 7: Create ranking result
             execution_time = time.time() - start_time
             ranking_result = RankingResult(

@@ -191,6 +191,11 @@ class FileLoaderImpl(FileLoader):
                 
                 keyword = str(value).strip()
                 
+                # Skip obvious non-keywords (periods, headers, etc.)
+                if any(skip_word in keyword.lower() for skip_word in ['период', 'period', 'выбранный', 'предыдущий', 'аналитика', 'сводка', 'статистика']):
+                    self.logger.warning(f"Skipping non-keyword in row {row_num}: '{keyword}'")
+                    continue
+                
                 if keyword and validate_keyword(keyword):
                     cleaned_keyword = clean_keyword(keyword)
                     keywords.append(cleaned_keyword)
@@ -205,6 +210,11 @@ class FileLoaderImpl(FileLoader):
             if keywords:
                 first_5 = keywords[:5]
                 self.logger.info(f"First 5 keywords loaded: {first_5}")
+            else:
+                self.logger.warning("No valid keywords found in Excel file!")
+                # Log all values for debugging
+                all_values = [str(val).strip() for val in df[keywords_column].dropna()]
+                self.logger.warning(f"All values in column '{keywords_column}': {all_values}")
             
             self.logger.info(f"Loaded {len(keywords)} keywords from Excel file")
             return keywords
