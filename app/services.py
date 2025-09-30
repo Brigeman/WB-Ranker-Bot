@@ -113,7 +113,7 @@ class RankingServiceImpl(RankingService):
             self.logger.error(f"Ranking process failed after {format_execution_time(execution_time)}: {e}")
             
             if self.progress_tracker:
-                self.progress_tracker.send_error(f"Ошибка ранжирования: {e}")
+                await self.progress_tracker.send_error(f"Ошибка ранжирования: {e}")
             
             raise RuntimeError(f"Ranking process failed: {e}")
     
@@ -192,7 +192,7 @@ class RankingServiceImpl(RankingService):
             self.logger.error(f"Ranking process failed after {format_execution_time(execution_time)}: {e}")
             
             if self.progress_tracker:
-                self.progress_tracker.send_error(f"Ошибка ранжирования: {e}")
+                await self.progress_tracker.send_error(f"Ошибка ранжирования: {e}")
             
             raise RuntimeError(f"Ranking process failed: {e}")
     
@@ -211,7 +211,7 @@ class RankingServiceImpl(RankingService):
         self.logger.info(f"Extracted product ID: {product_id}")
         
         if self.progress_tracker:
-            self.progress_tracker.send_message(f"✅ Товар найден: ID {product_id}")
+            await self.progress_tracker.send_message(f"✅ Товар найден: ID {product_id}")
         
         return product_id
     
@@ -220,7 +220,7 @@ class RankingServiceImpl(RankingService):
         self.logger.info(f"Loading keywords from: {keywords_source}")
         
         if self.progress_tracker:
-            self.progress_tracker.send_message("📁 Загружаем ключевые слова...")
+            await self.progress_tracker.send_message("📁 Загружаем ключевые слова...")
         
         try:
             # Determine if source is URL or file path
@@ -232,7 +232,7 @@ class RankingServiceImpl(RankingService):
             self.logger.info(f"Loaded {len(keywords)} keywords")
             
             if self.progress_tracker:
-                self.progress_tracker.send_message(f"✅ Загружено {len(keywords)} ключевых слов")
+                await self.progress_tracker.send_message(f"✅ Загружено {len(keywords)} ключевых слов")
             
             return keywords
             
@@ -245,7 +245,7 @@ class RankingServiceImpl(RankingService):
         self.logger.info(f"Getting product info for ID: {product_id}")
         
         if self.progress_tracker:
-            self.progress_tracker.send_message("🔍 Получаем информацию о товаре...")
+            await self.progress_tracker.send_message("🔍 Получаем информацию о товаре...")
         
         try:
             # Use a simple search to get product info
@@ -275,7 +275,7 @@ class RankingServiceImpl(RankingService):
             self.logger.info(f"Product info: {product_info['name']} by {product_info['brand']}")
             
             if self.progress_tracker:
-                self.progress_tracker.send_message(
+                await self.progress_tracker.send_message(
                     f"✅ Товар: {product_info['name']} ({product_info['brand']})"
                 )
             
@@ -301,7 +301,7 @@ class RankingServiceImpl(RankingService):
         self.logger.info(f"Starting search for {len(keywords)} keywords")
         
         if self.progress_tracker:
-            self.progress_tracker.send_message(
+            await self.progress_tracker.send_message(
                 f"🔍 Начинаем поиск по {len(keywords)} ключевым словам..."
             )
         
@@ -315,7 +315,7 @@ class RankingServiceImpl(RankingService):
                 if self.progress_tracker:
                     progress = (i + 1) / total_keywords * 100
                     eta = self._calculate_eta(i, total_keywords)
-                    self.progress_tracker.update_progress(
+                    await self.progress_tracker.update_progress(
                         current=i + 1,
                         total=total_keywords,
                         message=f"Поиск: {keyword[:30]}...",
@@ -375,7 +375,7 @@ class RankingServiceImpl(RankingService):
         )
         
         if self.progress_tracker:
-            self.progress_tracker.send_success(
+            await self.progress_tracker.send_success(
                 f"✅ Поиск завершен: найдено {self._stats['successful_searches']} из {total_keywords}"
             )
         
@@ -400,7 +400,7 @@ class RankingServiceImpl(RankingService):
         self.logger.info(f"Exporting results to {output_format.upper()}")
         
         if self.progress_tracker:
-            self.progress_tracker.send_message("📊 Экспортируем результаты...")
+            await self.progress_tracker.send_message("📊 Экспортируем результаты...")
         
         try:
             # Generate filename
@@ -421,12 +421,12 @@ class RankingServiceImpl(RankingService):
             self.logger.info(f"Results exported to: {export_path}")
             
             if self.progress_tracker:
-                self.progress_tracker.send_success(f"✅ Результаты сохранены: {filename}")
+                await self.progress_tracker.send_success(f"✅ Результаты сохранены: {filename}")
             
         except Exception as e:
             self.logger.error(f"Failed to export results: {e}")
             if self.progress_tracker:
-                self.progress_tracker.send_error(f"Ошибка экспорта: {e}")
+                await self.progress_tracker.send_error(f"Ошибка экспорта: {e}")
             raise
     
     def _calculate_eta(self, current: int, total: int) -> str:

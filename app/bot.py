@@ -323,6 +323,8 @@ class WBRankerBot:
         user_id = update.effective_user.id
         url = update.message.text.strip()
         
+        self.logger.info(f"URL handler - User ID: {user_id}, URL: {url[:50]}...")
+        
         try:
             # Validate URL
             parser = WBURLParser()
@@ -351,6 +353,8 @@ class WBRankerBot:
             
             self.active_sessions[user_id]['product_url'] = url
             self.active_sessions[user_id]['product_id'] = product_id
+            
+            self.logger.info(f"Session created/updated for user {user_id}: {list(self.active_sessions[user_id].keys())}")
             
             await update.message.reply_text(
                 f"✅ Ссылка на товар принята!\n"
@@ -419,10 +423,16 @@ class WBRankerBot:
         """Handle text messages (URLs or other text)."""
         text = update.message.text.strip()
         
+        # Debug: log message processing
+        self.logger.info(f"Text message handler - Text: {text[:50]}...")
+        
         # Check if it's a URL
         if text.startswith(('http://', 'https://')):
             # Check if it's a Google Drive or other file URL
-            if self._is_file_url(text):
+            is_file_url = self._is_file_url(text)
+            self.logger.info(f"URL detected - Is file URL: {is_file_url}")
+            
+            if is_file_url:
                 await self.handle_file_url_message(update, context)
             else:
                 await self.handle_url_message(update, context)
@@ -446,7 +456,9 @@ class WBRankerBot:
             'yandex.ru/disk',
             'cloud.mail.ru'
         ]
-        return any(domain in url.lower() for domain in file_domains)
+        is_file = any(domain in url.lower() for domain in file_domains)
+        self.logger.info(f"URL check: {url[:50]}... -> is_file: {is_file}")
+        return is_file
     
     async def handle_file_url_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle file URL messages (Google Drive, etc.)."""
@@ -454,6 +466,11 @@ class WBRankerBot:
         url = update.message.text.strip()
         
         try:
+            # Debug: log session state
+            self.logger.info(f"File URL handler - User ID: {user_id}, Active sessions: {list(self.active_sessions.keys())}")
+            if user_id in self.active_sessions:
+                self.logger.info(f"User session keys: {list(self.active_sessions[user_id].keys())}")
+            
             # Check if user has a product URL in session
             if user_id not in self.active_sessions or 'product_url' not in self.active_sessions[user_id]:
                 await update.message.reply_text(

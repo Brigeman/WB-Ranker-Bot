@@ -29,19 +29,6 @@ class FileLoaderImpl(FileLoader):
     def __init__(self, settings: Settings, logger: Logger):
         self.settings = settings
         self.logger = logger
-        self._session: Optional[aiohttp.ClientSession] = None
-    
-    async def __aenter__(self):
-        """Async context manager entry."""
-        timeout = aiohttp.ClientTimeout(total=30)
-        self._session = aiohttp.ClientSession(timeout=timeout)
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        if self._session:
-            await self._session.close()
-            self._session = None
     
     async def load_keywords_from_file(self, file_path: str) -> List[str]:
         """
@@ -193,9 +180,6 @@ class FileLoaderImpl(FileLoader):
     
     async def _download_file(self, url: str) -> bytes:
         """Download file content from URL."""
-        if not self._session:
-            raise RuntimeError("Session not initialized. Use async context manager.")
-        
         # Convert Google Drive URL if needed
         if is_google_drive_url(url):
             direct_url = convert_google_drive_url(url)
@@ -205,11 +189,14 @@ class FileLoaderImpl(FileLoader):
         
         def download():
             async def _download():
-                async with self._session.get(url) as response:
-                    if response.status != 200:
-                        raise ValueError(f"Failed to download file: HTTP {response.status}")
-                    
-                    return await response.read()
+                # Create a new session for this request to avoid event loop issues
+                timeout = aiohttp.ClientTimeout(total=30)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(url) as response:
+                        if response.status != 200:
+                            raise ValueError(f"Failed to download file: HTTP {response.status}")
+                        
+                        return await response.read()
             
             return _download()
         
@@ -280,8 +267,27 @@ class FileLoaderImpl(FileLoader):
     async def _parse_excel_content(self, content: bytes) -> List[str]:
         """Parse Excel content from bytes."""
         try:
-            # Read Excel from bytes
-            df = pd.read_excel(io.BytesIO(content))
+            # Try to read as Excel directly first
+            try:
+                df = pd.read_excel(io.BytesIO(content))
+            except Exception as excel_error:
+                # If direct Excel read fails, try to extract from ZIP
+                self.logger.info(f"Direct Excel read failed, trying ZIP extraction: {excel_error}")
+                
+                import zipfile
+                with zipfile.ZipFile(io.BytesIO(content)) as zip_file:
+                    # Find Excel files in the ZIP
+                    excel_files = [f for f in zip_file.namelist() if f.endswith(('.xlsx', '.xls'))]
+                    
+                    if not excel_files:
+                        raise ValueError("No Excel files found in ZIP archive")
+                    
+                    # Use the first Excel file
+                    excel_file = excel_files[0]
+                    self.logger.info(f"Extracting Excel file from ZIP: {excel_file}")
+                    
+                    with zip_file.open(excel_file) as excel_data:
+                        df = pd.read_excel(excel_data)
             
             if df.empty:
                 return []
