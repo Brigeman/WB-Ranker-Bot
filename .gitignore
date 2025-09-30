@@ -64,3 +64,6 @@ output/
 results/
 *.csv
 *.xlsx
+
+# files
+QUICK_START.md
