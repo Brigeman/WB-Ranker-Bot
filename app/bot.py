@@ -612,12 +612,39 @@ class WBRankerBot:
             await update.message.reply_text(summary_text, parse_mode='HTML')
             
             # Send file if available
-            # Note: In real implementation, you would send the actual exported file
-            await update.message.reply_text(
-                "📁 Отчет сохранен в файл Excel.\n"
-                "В полной версии бота файл будет отправлен автоматически.",
-                parse_mode='HTML'
-            )
+            if result.export_file_path and os.path.exists(result.export_file_path):
+                try:
+                    # Determine file type and caption
+                    file_extension = os.path.splitext(result.export_file_path)[1].lower()
+                    if file_extension == '.csv':
+                        caption = "📊 Результаты анализа в формате CSV"
+                    else:
+                        caption = "📊 Результаты анализа в формате Excel"
+                    
+                    # Send the file
+                    with open(result.export_file_path, 'rb') as file:
+                        await update.message.reply_document(
+                            document=file,
+                            filename=os.path.basename(result.export_file_path),
+                            caption=caption,
+                            parse_mode='HTML'
+                        )
+                    
+                    self.logger.info(f"Sent results file to user: {result.export_file_path}")
+                    
+                except Exception as e:
+                    self.logger.error(f"Error sending file: {e}")
+                    await update.message.reply_text(
+                        f"❌ Ошибка при отправке файла: {e}\n"
+                        f"Файл сохранен по пути: {result.export_file_path}",
+                        parse_mode='HTML'
+                    )
+            else:
+                await update.message.reply_text(
+                    "📁 Отчет сохранен локально.\n"
+                    "Файл не найден для отправки.",
+                    parse_mode='HTML'
+                )
             
         except Exception as e:
             self.logger.error(f"Error sending results: {e}")

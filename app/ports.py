@@ -37,6 +37,7 @@ class RankingResult(BaseModel):
     total_keywords: int
     found_keywords: int
     execution_time_seconds: float
+    export_file_path: Optional[str] = None
 
 
 @runtime_checkable

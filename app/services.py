@@ -174,11 +174,15 @@ class RankingServiceImpl(RankingService):
                 results=search_results,
                 total_keywords=len(keywords),
                 found_keywords=self._stats["successful_searches"],
-                execution_time_seconds=execution_time
+                execution_time_seconds=execution_time,
+                export_file_path=None  # Will be set after export
             )
             
             # Step 8: Export results
-            await self._export_results(ranking_result, output_format)
+            export_path = await self._export_results(ranking_result, output_format)
+            
+            # Update ranking result with export path
+            ranking_result.export_file_path = export_path
             
             self.logger.info(
                 f"Ranking completed successfully. "
@@ -395,8 +399,8 @@ class RankingServiceImpl(RankingService):
             f"best={self._stats['best_position']}, worst={self._stats['worst_position']}"
         )
     
-    async def _export_results(self, ranking_result: RankingResult, output_format: str) -> None:
-        """Export ranking results to file."""
+    async def _export_results(self, ranking_result: RankingResult, output_format: str) -> str:
+        """Export ranking results to file and return the file path."""
         self.logger.info(f"Exporting results to {output_format.upper()}")
         
         if self.progress_tracker:
@@ -422,6 +426,8 @@ class RankingServiceImpl(RankingService):
             
             if self.progress_tracker:
                 await self.progress_tracker.send_success(f"✅ Результаты сохранены: {filename}")
+            
+            return export_path
             
         except Exception as e:
             self.logger.error(f"Failed to export results: {e}")

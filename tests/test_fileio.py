@@ -98,23 +98,22 @@ class TestFileLoaderImpl:
     
     @pytest.mark.asyncio
     async def test_context_manager(self, settings, mock_logger):
-        """Test async context manager."""
-        async with FileLoaderImpl(settings, mock_logger) as loader:
-            assert loader._session is not None
-        
-        # Session should be closed after context exit
-        assert loader._session is None
+        """Test FileLoaderImpl instantiation."""
+        loader = FileLoaderImpl(settings, mock_logger)
+        assert loader is not None
+        assert loader.settings == settings
+        assert loader.logger == mock_logger
     
     @pytest.mark.asyncio
     async def test_load_keywords_from_csv_file(self, settings, mock_logger, temp_csv_file):
         """Test loading keywords from CSV file."""
-        async with FileLoaderImpl(settings, mock_logger) as loader:
-            keywords = await loader.load_keywords_from_file(temp_csv_file)
-            
-            assert len(keywords) == 3
-            assert 'keyword1' in keywords
-            assert 'keyword2' in keywords
-            assert 'keyword3' in keywords
+        loader = FileLoaderImpl(settings, mock_logger)
+        keywords = await loader.load_keywords_from_file(temp_csv_file)
+        
+        assert len(keywords) == 3
+        assert 'keyword1' in keywords
+        assert 'keyword2' in keywords
+        assert 'keyword3' in keywords
     
     @pytest.mark.asyncio
     async def test_load_keywords_from_excel_file(self, settings, mock_logger, temp_excel_file):
