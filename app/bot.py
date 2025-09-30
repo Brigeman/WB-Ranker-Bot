@@ -243,7 +243,7 @@ class WBRankerBot:
 2️⃣ <b>Загрузите файл с ключевыми словами</b>
    • CSV файл с ключевыми словами в первой колонке
    • Excel файл (.xlsx, .xls)
-   • Или отправьте ссылку на Google Drive
+   • Или отправьте ссылку на файл (Google Drive, Dropbox, Яндекс.Диск)
 
 3️⃣ <b>Получите отчет</b>
    • Позиции товара по каждому ключевому слову
@@ -421,14 +421,64 @@ class WBRankerBot:
         
         # Check if it's a URL
         if text.startswith(('http://', 'https://')):
-            await self.handle_url_message(update, context)
+            # Check if it's a Google Drive or other file URL
+            if self._is_file_url(text):
+                await self.handle_file_url_message(update, context)
+            else:
+                await self.handle_url_message(update, context)
         else:
             await update.message.reply_text(
                 "❓ Не понимаю команду.\n\n"
                 "Отправьте:\n"
                 "• Ссылку на товар WB\n"
                 "• Файл с ключевыми словами\n"
+                "• Ссылку на файл (Google Drive)\n"
                 "• Команду /help для справки",
+                parse_mode='HTML'
+            )
+    
+    def _is_file_url(self, url: str) -> bool:
+        """Check if URL is a file URL (Google Drive, etc.)."""
+        file_domains = [
+            'drive.google.com',
+            'docs.google.com',
+            'dropbox.com',
+            'yandex.ru/disk',
+            'cloud.mail.ru'
+        ]
+        return any(domain in url.lower() for domain in file_domains)
+    
+    async def handle_file_url_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle file URL messages (Google Drive, etc.)."""
+        user_id = update.effective_user.id
+        url = update.message.text.strip()
+        
+        try:
+            # Check if user has a product URL in session
+            if user_id not in self.active_sessions or 'product_url' not in self.active_sessions[user_id]:
+                await update.message.reply_text(
+                    "❌ Сначала отправьте ссылку на товар WB",
+                    parse_mode='HTML'
+                )
+                return
+            
+            # Store file URL in session
+            self.active_sessions[user_id]['file_url'] = url
+            
+            await update.message.reply_text(
+                f"✅ Ссылка на файл принята!\n"
+                f"🔗 URL: {url}\n\n"
+                f"Начинаем загрузку и анализ...",
+                parse_mode='HTML'
+            )
+            
+            # Start ranking process with file URL
+            await self._start_ranking_process_with_url(update, context, user_id)
+            
+        except Exception as e:
+            self.logger.error(f"Error handling file URL: {e}")
+            await update.message.reply_text(
+                f"❌ Ошибка при обработке ссылки на файл: {e}",
                 parse_mode='HTML'
             )
     
@@ -485,6 +535,43 @@ class WBRankerBot:
                         pass
                 del self.active_sessions[user_id]
     
+    async def _start_ranking_process_with_url(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+        """Start the ranking process with file URL."""
+        try:
+            session = self.active_sessions[user_id]
+            product_url = session['product_url']
+            file_url = session['file_url']
+            
+            # Create progress tracker
+            progress_tracker = TelegramProgressTracker(update, context)
+            
+            # Initialize search client
+            async with WBAPIAdapter(self.settings, self.logger) as search_client:
+                # Update ranking service with search client
+                self.ranking_service.search_client = search_client
+                self.ranking_service.progress_tracker = progress_tracker
+                
+                # Start ranking with URL
+                result = await self.ranking_service.rank_product_by_keywords(
+                    product_url=product_url,
+                    keywords_source=file_url,
+                    output_format="xlsx"
+                )
+                
+                # Send results
+                await self._send_ranking_results(update, context, result)
+                
+        except Exception as e:
+            self.logger.error(f"Error in ranking process with URL: {e}")
+            await update.message.reply_text(
+                f"❌ Ошибка при анализе: {e}",
+                parse_mode='HTML'
+            )
+        finally:
+            # Cleanup
+            if user_id in self.active_sessions:
+                del self.active_sessions[user_id]
+    
     async def _send_ranking_results(self, update: Update, context: ContextTypes.DEFAULT_TYPE, result) -> None:
         """Send ranking results to user."""
         try:
@@ -537,39 +624,35 @@ class WBRankerBot:
         # Callback query handler
         self.application.add_handler(CallbackQueryHandler(self.callback_query_handler))
     
-    async def run(self) -> None:
-        """Run the bot."""
+    def run(self) -> None:
+        """Run the bot (synchronously)."""
         try:
-            # Initialize bot
-            await self.initialize()
-            
+            # Initialize bot (no awaits needed here)
+            asyncio.run(self.initialize())
+
             # Create application
             self.application = Application.builder().token(self.settings.bot_token).build()
-            
+
             # Setup handlers
             self.setup_handlers()
-            
-            # Start bot
+
+            # Start bot (blocking call manages its own event loop)
             self.logger.info("Starting WB Ranker Bot...")
-            await self.application.run_polling()
-            
+            self.application.run_polling()
+
         except Exception as e:
             self.logger.error(f"Failed to run bot: {e}")
             raise
-        finally:
-            # Cleanup
-            if self.application:
-                await self.application.shutdown()
 
 
-async def main():
+def main():
     """Main function to run the bot."""
     # Load settings
     settings = Settings()
-    
+
     # Create and run bot
     bot = WBRankerBot(settings)
-    await bot.run()
+    bot.run()
 
 
 if __name__ == "__main__":
@@ -580,4 +663,4 @@ if __name__ == "__main__":
     )
     
     # Run bot
-    asyncio.run(main())
+    main()
