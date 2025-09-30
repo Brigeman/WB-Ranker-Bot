@@ -129,39 +129,25 @@ class FileExporterImpl(FileExporter):
             'Частотность',
             'Позиция товара',
             'Цена товара',
-            'Страница',
-            'Статус'
+            'Страница'
         ]
         
         rows = []
         row_number = 1
         
+        # Only include found products (filter out "Не найден")
         for search_result in result.results:
-            if search_result.product:
-                # Product found
+            if search_result.product:  # Only include found products
                 row = [
                     row_number,
                     search_result.keyword,
                     'Найден',
                     search_result.position,
                     f"{search_result.product.price_rub:.2f} ₽",
-                    search_result.page,
-                    'Найден'
+                    search_result.page
                 ]
-            else:
-                # Product not found
-                row = [
-                    row_number,
-                    search_result.keyword,
-                    'Не найден',
-                    '-',
-                    '-',
-                    '-',
-                    'Не найден' if not search_result.error else f'Ошибка: {search_result.error}'
-                ]
-            
-            rows.append(row)
-            row_number += 1
+                rows.append(row)
+                row_number += 1
         
         return {
             'headers': headers,
@@ -170,13 +156,12 @@ class FileExporterImpl(FileExporter):
     
     def _prepare_excel_data(self, result: RankingResult) -> dict:
         """Prepare data for Excel export."""
-        # Main results data
+        # Main results data - only include found products
         results_data = []
         row_number = 1
         
         for search_result in result.results:
-            if search_result.product:
-                # Product found
+            if search_result.product:  # Only include found products
                 results_data.append({
                     'Номер строки': row_number,
                     'Ключевое слово': search_result.keyword,
@@ -186,25 +171,9 @@ class FileExporterImpl(FileExporter):
                     'Страница': search_result.page,
                     'Бренд': search_result.product.brand,
                     'Рейтинг': search_result.product.rating,
-                    'Отзывы': search_result.product.feedbacks,
-                    'Статус': 'Найден'
+                    'Отзывы': search_result.product.feedbacks
                 })
-            else:
-                # Product not found
-                results_data.append({
-                    'Номер строки': row_number,
-                    'Ключевое слово': search_result.keyword,
-                    'Частотность': 'Не найден',
-                    'Позиция товара': '-',
-                    'Цена товара': '-',
-                    'Страница': '-',
-                    'Бренд': '-',
-                    'Рейтинг': '-',
-                    'Отзывы': '-',
-                    'Статус': 'Не найден' if not search_result.error else f'Ошибка: {search_result.error}'
-                })
-            
-            row_number += 1
+                row_number += 1
         
         # Summary data
         summary_data = [

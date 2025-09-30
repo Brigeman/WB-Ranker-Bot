@@ -131,6 +131,12 @@ class WBAPIAdapter(SearchClient):
                 # Search current page
                 products = await self._search_page(keyword, page)
                 
+                # Log page results for debugging
+                self.logger.info(f"Page {page}: found {len(products)} products")
+                if products:
+                    first_5_ids = [p.id for p in products[:5]]
+                    self.logger.info(f"First 5 product IDs on page {page}: {first_5_ids}")
+                
                 # Look for our product
                 for index, product in enumerate(products):
                     if product.id == product_id:

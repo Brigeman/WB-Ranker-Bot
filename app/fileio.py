@@ -152,11 +152,40 @@ class FileLoaderImpl(FileLoader):
                 self.logger.warning("Excel file is empty")
                 return []
             
-            # Get the first column
-            first_column = df.iloc[:, 0]
+            # Find the column with keywords
+            keywords_column = None
             
+            # First, try to find column with header "Ключевое слово" or similar
+            for col in df.columns:
+                col_str = str(col).strip().lower()
+                if any(keyword in col_str for keyword in ['ключевое', 'keyword', 'слово', 'запрос']):
+                    keywords_column = col
+                    self.logger.info(f"Found keywords column: '{col}'")
+                    break
+            
+            # If not found, look for the first column that contains text data
+            if keywords_column is None:
+                for col in df.columns:
+                    # Check if column contains mostly text data
+                    non_null_count = df[col].notna().sum()
+                    if non_null_count > 0:
+                        # Check if values look like keywords (not numbers, not dates)
+                        sample_values = df[col].dropna().head(5)
+                        if len(sample_values) > 0:
+                            text_like_count = sum(1 for val in sample_values if isinstance(val, str) and len(str(val).strip()) > 2)
+                            if text_like_count >= len(sample_values) * 0.6:  # 60% text-like
+                                keywords_column = col
+                                self.logger.info(f"Using first text-like column: '{col}'")
+                                break
+            
+            # Fallback to first column
+            if keywords_column is None:
+                keywords_column = df.columns[0]
+                self.logger.warning(f"No suitable keywords column found, using first column: '{keywords_column}'")
+            
+            # Extract keywords from the found column
             keywords = []
-            for row_num, value in enumerate(first_column, 1):
+            for row_num, value in enumerate(df[keywords_column], 1):
                 if pd.isna(value):
                     continue
                 
@@ -171,6 +200,11 @@ class FileLoaderImpl(FileLoader):
                         row_number=row_num,
                         keyword=keyword
                     )
+            
+            # Log first 5 keywords for debugging
+            if keywords:
+                first_5 = keywords[:5]
+                self.logger.info(f"First 5 keywords loaded: {first_5}")
             
             self.logger.info(f"Loaded {len(keywords)} keywords from Excel file")
             return keywords
