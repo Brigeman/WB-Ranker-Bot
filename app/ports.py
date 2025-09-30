@@ -235,7 +235,7 @@ class URLParser(ABC):
 class ProgressTracker(Protocol):
     """Protocol for progress tracking."""
     
-    def update_progress(
+    async def update_progress(
         self, 
         current: int, 
         total: int, 
@@ -251,7 +251,7 @@ class ProgressTracker(Protocol):
         """
         ...
     
-    def complete(self, message: str = "") -> None:
+    async def complete(self, message: str = "") -> None:
         """
         Mark progress as complete.
         
@@ -260,7 +260,7 @@ class ProgressTracker(Protocol):
         """
         ...
     
-    def error(self, message: str) -> None:
+    async def error(self, message: str) -> None:
         """
         Mark progress as error.
         

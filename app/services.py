@@ -324,64 +324,73 @@ class RankingServiceImpl(RankingService):
         search_results = []
         total_keywords = len(keywords)
         
-        # Process keywords with progress tracking
-        for i, keyword in enumerate(keywords):
-            try:
-                # Update progress
-                if self.progress_tracker:
-                    progress = (i + 1) / total_keywords * 100
-                    eta = self._calculate_eta(i, total_keywords)
-                    await self.progress_tracker.update_progress(
-                        current=i + 1,
-                        total=total_keywords,
-                        message=f"Поиск: {keyword[:30]}...",
-                        eta=eta
-                    )
-                
-                # Search for product
+        # Process keywords in parallel batches
+        batch_size = self.settings.wb_concurrency_limit
+        completed = 0
+        
+        for batch_start in range(0, total_keywords, batch_size):
+            batch_end = min(batch_start + batch_size, total_keywords)
+            batch_keywords = keywords[batch_start:batch_end]
+            
+            # Process batch in parallel
+            batch_tasks = []
+            for keyword in batch_keywords:
                 pages_to_search = max_pages if max_pages is not None else self.settings.wb_max_pages
-                result = await self.search_client.search_product(
+                task = self.search_client.search_product(
                     keyword=keyword,
                     product_id=product_id,
                     max_pages=pages_to_search
                 )
-                
-                search_results.append(result)
-                
-                # Log result
-                if result.product:
-                    self.logger.info(
-                        f"Found product for '{keyword}' at position {result.position} "
-                        f"(page {result.page})"
+                batch_tasks.append(task)
+            
+            # Wait for batch completion
+            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+            
+            # Process results
+            for result in batch_results:
+                if isinstance(result, Exception):
+                    self.logger.error(f"Batch search error: {result}")
+                    # Create error result
+                    error_result = SearchResult(
+                        keyword="error",
+                        product=None,
+                        position=0,
+                        page=0,
+                        error=str(result)
                     )
-                    self._stats["successful_searches"] += 1
-                else:
-                    self.logger.info(f"Product not found for keyword: '{keyword}'")
-                    if result.error:
-                        self.logger.warning(f"Search error for '{keyword}': {result.error}")
+                    search_results.append(error_result)
                     self._stats["failed_searches"] += 1
-                
-                # Add delay between searches to respect rate limits
-                if i < total_keywords - 1:  # Don't delay after last keyword
-                    import random
-                    min_delay, max_delay = self.settings.wb_delay_between_requests
-                    delay = random.uniform(min_delay, max_delay)
-                    await asyncio.sleep(delay)
-                
-            except Exception as e:
-                self.logger.error(f"Error searching for keyword '{keyword}': {e}")
-                
-                # Create error result
-                error_result = SearchResult(
-                    keyword=keyword,
-                    product=None,
-                    position=None,
-                    page=None,
-                    total_pages_searched=0,
-                    error=str(e)
+                else:
+                    search_results.append(result)
+                    if result.product:
+                        self.logger.info(
+                            f"Found product for '{result.keyword}' at position {result.position} "
+                            f"(page {result.page})"
+                        )
+                        self._stats["successful_searches"] += 1
+                        if result.position is not None:
+                            self._stats["total_position"] += result.position
+                    else:
+                        self.logger.info(f"Product not found for keyword: '{result.keyword}'")
+                        if result.error:
+                            self.logger.warning(f"Search error for '{result.keyword}': {result.error}")
+                        self._stats["failed_searches"] += 1
+            
+            completed += len(batch_keywords)
+            
+            # Update progress
+            if self.progress_tracker:
+                eta = self._calculate_eta(completed, total_keywords)
+                await self.progress_tracker.update_progress(
+                    current=completed,
+                    total=total_keywords,
+                    message=f"Обработано: {completed}/{total_keywords}",
+                    eta=eta
                 )
-                search_results.append(error_result)
-                self._stats["failed_searches"] += 1
+            
+            # Small delay between batches
+            if batch_end < total_keywords:
+                await asyncio.sleep(0.1)
         
         self._stats["total_keywords_processed"] = total_keywords
         
@@ -452,20 +461,22 @@ class RankingServiceImpl(RankingService):
         if current == 0:
             return "calculating..."
         
-        # Simple ETA calculation based on current progress
-        # In real implementation, you might want to track actual timing
+        # More accurate ETA calculation based on batch processing
         remaining = total - current
-        estimated_seconds = remaining * 2  # Rough estimate: 2 seconds per keyword
+        batch_size = self.settings.wb_concurrency_limit
+        
+        # Estimate: 2 seconds per batch (parallel processing)
+        estimated_seconds = (remaining / batch_size) * 2
         
         if estimated_seconds < 60:
-            return f"{estimated_seconds}s"
+            return f"{estimated_seconds:.0f}s"
         elif estimated_seconds < 3600:
             minutes = estimated_seconds // 60
-            return f"{minutes}m"
+            return f"{minutes:.0f}m"
         else:
             hours = estimated_seconds // 3600
             minutes = (estimated_seconds % 3600) // 60
-            return f"{hours}h {minutes}m"
+            return f"{hours:.0f}h {minutes:.0f}m"
     
     def get_statistics(self) -> dict:
         """Get current ranking statistics."""

@@ -2,7 +2,7 @@
 
 Входные данные
 	•	Файл со списком ключевых слов (пример: https://drive.google.com/file/d/12OhUuANklqqtfyjZqleenFxG-DnPPIi6/view?usp=sharing).
-	•	Ссылка на товар Wildberries (пример: https://www.wildberries.ru/catalog/279266291/detail.aspx?targetUrl=MI).
+	•	Ссылка на товар Wildberries (пример: https://www.wildberries.ru/catalog/118093491/detail.aspx).
 
 1. Цель проекта
 

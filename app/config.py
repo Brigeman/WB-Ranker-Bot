@@ -25,13 +25,13 @@ class Settings(BaseSettings):
         description="Wildberries API base URL"
     )
     wb_max_pages: int = Field(
-        default=5,
+        default=2,  # Уменьшаем до 2 страниц для ускорения
         ge=1,
         le=10,
         description="Maximum pages to search per keyword"
     )
     wb_concurrency_limit: int = Field(
-        default=5,
+        default=3,  # Увеличиваем параллельность
         ge=1,
         le=20,
         description="Maximum concurrent requests to WB API"
@@ -55,15 +55,15 @@ class Settings(BaseSettings):
         description="Exponential backoff factor for retries"
     )
     wb_delay_between_requests: tuple[float, float] = Field(
-        default=(0.05, 0.2),
+        default=(0.5, 1.5),  # Уменьшаем задержки
         description="Delay range between requests in seconds (min, max)"
     )
     
     # File Processing Configuration
     max_keywords_limit: int = Field(
-        default=1000,
+        default=100000,
         ge=1,
-        le=10000,
+        le=100000,
         description="Maximum number of keywords to process"
     )
     max_execution_time_minutes: int = Field(

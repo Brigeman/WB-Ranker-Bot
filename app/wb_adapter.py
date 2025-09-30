@@ -204,26 +204,65 @@ class WBAPIAdapter(SearchClient):
             url=url
         )
         
-        async with self.session.get(url) as response:
+        async with self.session.get(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Referer': 'https://www.wildberries.ru/',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+        }) as response:
             await self._handle_response_error(response)
-            data = await response.json()
+            
+            # Check content type
+            content_type = response.headers.get('content-type', '').lower()
+            self.logger.debug(f"Response content type: {content_type}")
+            
+            if 'application/json' not in content_type:
+                self.logger.warning(f"Unexpected content type: {content_type}")
+                # Try to parse as JSON anyway
+                try:
+                    data = await response.json()
+                    self.logger.debug(f"Successfully parsed as JSON despite content type")
+                except Exception as e:
+                    self.logger.error(f"Failed to parse response as JSON: {e}")
+                    # Log the actual response content for debugging
+                    try:
+                        text_content = await response.text()
+                        self.logger.debug(f"Response content (first 200 chars): {text_content[:200]}")
+                    except:
+                        pass
+                    # Return empty result
+                    return []
+            else:
+                data = await response.json()
+                self.logger.debug(f"Successfully parsed JSON response")
             
             return self._parse_products(data)
     
     def _build_search_url(self, keyword: str, page: int) -> str:
         """Build search URL with parameters."""
+        # Use the public search API endpoint
         params = {
             'query': keyword,
             'page': page,
-            'resultset': 'catalog',
             'sort': 'popular',
-            'curr': 'rub',
+            'locale': 'ru',
             'lang': 'ru',
-            'locale': 'ru'
+            'curr': 'rub',
+            'dest': '-1257786',
+            'appType': '1',
+            'resultset': 'catalog'
         }
         
         query_string = urlencode(params)
-        return f"{self.settings.wb_api_base_url}?{query_string}"
+        # Use the public search endpoint
+        return f"https://search.wb.ru/exactmatch/ru/common/v4/search?{query_string}"
     
     async def _handle_response_error(self, response: aiohttp.ClientResponse):
         """Handle HTTP response errors."""
@@ -270,9 +309,14 @@ class WBAPIAdapter(SearchClient):
         try:
             products = []
             
+            self.logger.debug(f"Parsing response data keys: {list(data.keys())}")
+            
             # Navigate through the response structure
             data_section = data.get('data', {})
+            self.logger.debug(f"Data section keys: {list(data_section.keys())}")
+            
             products_data = data_section.get('products', [])
+            self.logger.debug(f"Found {len(products_data)} products in response")
             
             for product_data in products_data:
                 try:

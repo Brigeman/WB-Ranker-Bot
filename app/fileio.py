@@ -450,7 +450,41 @@ class FileLoaderImpl(FileLoader):
                     keywords_column = df.columns[0]
                     self.logger.warning(f"No suitable keywords column found, using first column: '{keywords_column}'")
             
-            return await self._load_from_excel_dataframe(df)
+            # Extract keywords from the found column
+            keywords = []
+            for row_num, value in enumerate(df[keywords_column], 1):
+                if pd.isna(value):
+                    continue
+                
+                keyword = str(value).strip()
+                
+                # Skip obvious non-keywords (periods, headers, etc.)
+                if any(skip_word in keyword.lower() for skip_word in ['период', 'period', 'выбранный', 'предыдущий', 'аналитика', 'сводка', 'статистика']):
+                    self.logger.warning(f"Skipping non-keyword in row {row_num}: '{keyword}'")
+                    continue
+                
+                if keyword and validate_keyword(keyword):
+                    cleaned_keyword = clean_keyword(keyword)
+                    keywords.append(cleaned_keyword)
+                elif keyword:
+                    self.logger.warning(
+                        f"Invalid keyword in row {row_num}: '{keyword}'",
+                        row_number=row_num,
+                        keyword=keyword
+                    )
+            
+            # Log first 5 keywords for debugging
+            if keywords:
+                first_5 = keywords[:5]
+                self.logger.info(f"First 5 keywords loaded: {first_5}")
+            else:
+                self.logger.warning("No valid keywords found in Excel file!")
+                # Log all values for debugging
+                all_values = [str(val).strip() for val in df[keywords_column].dropna()]
+                self.logger.warning(f"All values in column '{keywords_column}': {all_values}")
+            
+            self.logger.info(f"Loaded {len(keywords)} keywords from Excel file")
+            return keywords
             
         except Exception as e:
             raise ValueError(f"Failed to read Excel file: {e}")

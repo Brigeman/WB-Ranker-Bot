@@ -14,7 +14,7 @@ from telegram.ext import (
 from app.config import Settings
 from app.ports import Logger, ProgressTracker
 from app.services import RankingServiceImpl
-from app.wb_adapter import WBAPIAdapter
+from app.wb_playwright_adapter import WBPlaywrightAdapter
 from app.fileio import FileLoaderImpl
 from app.exporter import FileExporterImpl
 from app.utils import WBURLParser
@@ -104,6 +104,46 @@ class TelegramProgressTracker(ProgressTracker):
         empty = 10 - filled
         
         return "█" * filled + "░" * empty + f" {progress:.1%}"
+    
+    async def complete(self, message: str = "") -> None:
+        """Mark progress as complete."""
+        try:
+            completion_text = f"✅ Завершено!"
+            if message:
+                completion_text += f"\n📝 {message}"
+            
+            if self.last_message_id:
+                await self.context.bot.edit_message_text(
+                    chat_id=self.update.effective_chat.id,
+                    message_id=self.last_message_id,
+                    text=completion_text
+                )
+            else:
+                await self.context.bot.send_message(
+                    chat_id=self.update.effective_chat.id,
+                    text=completion_text
+                )
+        except Exception as e:
+            logging.warning(f"Failed to send completion message: {e}")
+    
+    async def error(self, message: str) -> None:
+        """Mark progress as error."""
+        try:
+            error_text = f"❌ Ошибка: {message}"
+            
+            if self.last_message_id:
+                await self.context.bot.edit_message_text(
+                    chat_id=self.update.effective_chat.id,
+                    message_id=self.last_message_id,
+                    text=error_text
+                )
+            else:
+                await self.context.bot.send_message(
+                    chat_id=self.update.effective_chat.id,
+                    text=error_text
+                )
+        except Exception as e:
+            logging.warning(f"Failed to send error message: {e}")
 
 
 class TelegramLogger(Logger):
@@ -120,7 +160,10 @@ class TelegramLogger(Logger):
         self.logger.info(message)
         if self.bot_context and self.chat_id:
             try:
-                asyncio.create_task(self._send_to_telegram(f"ℹ️ {message}"))
+                # Check if we're in an async context
+                loop = asyncio.get_running_loop()
+                if loop and not loop.is_closed():
+                    asyncio.create_task(self._send_to_telegram(f"ℹ️ {message}"))
             except RuntimeError:
                 # No event loop running, skip Telegram logging
                 pass
@@ -130,7 +173,10 @@ class TelegramLogger(Logger):
         self.logger.warning(message)
         if self.bot_context and self.chat_id:
             try:
-                asyncio.create_task(self._send_to_telegram(f"⚠️ {message}"))
+                # Check if we're in an async context
+                loop = asyncio.get_running_loop()
+                if loop and not loop.is_closed():
+                    asyncio.create_task(self._send_to_telegram(f"⚠️ {message}"))
             except RuntimeError:
                 # No event loop running, skip Telegram logging
                 pass
@@ -140,7 +186,10 @@ class TelegramLogger(Logger):
         self.logger.error(message)
         if self.bot_context and self.chat_id:
             try:
-                asyncio.create_task(self._send_to_telegram(f"❌ {message}"))
+                # Check if we're in an async context
+                loop = asyncio.get_running_loop()
+                if loop and not loop.is_closed():
+                    asyncio.create_task(self._send_to_telegram(f"❌ {message}"))
             except RuntimeError:
                 # No event loop running, skip Telegram logging
                 pass
@@ -274,7 +323,7 @@ class WBRankerBot:
         """Handle /status command."""
         try:
             # Check WB API health
-            async with WBAPIAdapter(self.settings, self.logger) as wb_adapter:
+            async with WBPlaywrightAdapter(self.settings, self.logger) as wb_adapter:
                 api_healthy = await wb_adapter.health_check()
             
             status_text = f"""
@@ -520,7 +569,7 @@ class WBRankerBot:
             progress_tracker = TelegramProgressTracker(update, context)
             
             # Initialize search client
-            async with WBAPIAdapter(self.settings, self.logger) as search_client:
+            async with WBPlaywrightAdapter(self.settings, self.logger) as search_client:
                 # Update ranking service with search client
                 self.ranking_service.search_client = search_client
                 self.ranking_service.progress_tracker = progress_tracker
@@ -563,7 +612,7 @@ class WBRankerBot:
             progress_tracker = TelegramProgressTracker(update, context)
             
             # Initialize search client
-            async with WBAPIAdapter(self.settings, self.logger) as search_client:
+            async with WBPlaywrightAdapter(self.settings, self.logger) as search_client:
                 # Update ranking service with search client
                 self.ranking_service.search_client = search_client
                 self.ranking_service.progress_tracker = progress_tracker
@@ -600,7 +649,7 @@ class WBRankerBot:
 📦 <b>Название:</b> {result.product_name}
 🔍 <b>Всего ключевых слов:</b> {result.total_keywords}
 ✅ <b>Найдено:</b> {result.found_keywords}
-📈 <b>Процент найденных:</b> {(result.found_keywords / result.total_keywords * 100):.1f}%
+    📈 <b>Процент найденных:</b> {(result.found_keywords / result.total_keywords * 100):.1f}% if result.total_keywords > 0 else "0%"
 ⏱️ <b>Время выполнения:</b> {result.execution_time_seconds:.1f}с
 
 <b>Статистика:</b>
