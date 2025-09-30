@@ -638,7 +638,10 @@ class WBRankerBot:
 
             # Start bot (blocking call manages its own event loop)
             self.logger.info("Starting WB Ranker Bot...")
-            self.application.run_polling()
+            self.application.run_polling(
+                drop_pending_updates=True,  # Drop pending updates to avoid conflicts
+                allowed_updates=["message", "callback_query"]  # Only handle these types
+            )
 
         except Exception as e:
             self.logger.error(f"Failed to run bot: {e}")
