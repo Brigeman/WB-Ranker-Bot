@@ -238,7 +238,7 @@ class TestWBRankerBot:
     @pytest.mark.asyncio
     async def test_status_command(self, bot, mock_update, mock_context):
         """Test /status command."""
-        with patch('app.bot.WBAPIAdapter') as mock_adapter_class:
+        with patch('app.bot.WBPlaywrightAdapter') as mock_adapter_class:
             mock_adapter = AsyncMock()
             mock_adapter.health_check = AsyncMock(return_value=True)
             mock_adapter_class.return_value.__aenter__ = AsyncMock(return_value=mock_adapter)

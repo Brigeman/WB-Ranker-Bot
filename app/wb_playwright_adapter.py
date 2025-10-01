@@ -96,11 +96,17 @@ class WBPlaywrightAdapter(SearchClient):
                         self.logger.info(f"First 5 product IDs on page {page_num}: {first_5_ids}")
                     
                     # Look for our product
+                    self.logger.debug(f"Looking for product {product_id} among {len(products)} products on page {page_num}")
+                    all_product_ids = [p.id for p in products]
+                    self.logger.debug(f"All product IDs on page {page_num}: {all_product_ids}")
+                    
                     for index, product in enumerate(products):
+                        self.logger.debug(f"Checking product {product.id} (index {index}) against target {product_id}")
                         if product.id == product_id:
                             position = calculate_position(page_num, index)
                             
-                            self.logger.info(f"Found product {product_id} at position {position}")
+                            self.logger.info(f"✅ FOUND! Product {product_id} at position {position} (page {page_num}, index {index})")
+                            self.logger.info(f"Product details: name='{product.name}', brand='{product.brand}', price={product.price_rub}")
                             
                             return SearchResult(
                                 keyword=keyword,
@@ -144,24 +150,64 @@ class WBPlaywrightAdapter(SearchClient):
             # Build search URL
             search_url = self._build_search_url(keyword, page_num)
             
-            self.logger.debug(f"Searching page {page_num} for keyword '{keyword}'")
+            self.logger.info(f"🔍 Searching page {page_num} for keyword '{keyword}'")
+            self.logger.info(f"🌐 URL: {search_url}")
             
-            # Navigate to search page with shorter timeout
-            await page.goto(search_url, wait_until='domcontentloaded', timeout=8000)
+            # Set realistic browser headers to avoid detection
+            await page.set_extra_http_headers({
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            })
+            
+            # Navigate to search page with longer timeout
+            self.logger.info(f"⏳ Loading page...")
+            await page.goto(search_url, wait_until='domcontentloaded', timeout=30000)
+            self.logger.info(f"✅ Page loaded successfully")
+            
+            # Simulate human behavior - random delay
+            import random
+            delay = random.uniform(1.0, 3.0)
+            self.logger.debug(f"⏸️ Waiting {delay:.1f}s to simulate human behavior...")
+            await asyncio.sleep(delay)
+            
+            # Scroll down to trigger lazy loading
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+            await asyncio.sleep(random.uniform(0.5, 1.5))
             
             # Wait for products to load with shorter timeout
             try:
-                await page.wait_for_selector('[data-testid="product-card"]', timeout=3000)
+                await page.wait_for_selector('[data-testid="product-card"]', timeout=5000)
             except:
                 try:
                     # Try alternative selectors
-                    await page.wait_for_selector('.product-card', timeout=2000)
+                    await page.wait_for_selector('.product-card', timeout=3000)
                 except:
                     # If no products found, continue anyway
                     pass
             
             # Extract product data
             products = await self._extract_products_from_page(page)
+            
+            # Debug: check if we got any products
+            if not products:
+                self.logger.warning(f"No products found on page {page_num} for keyword '{keyword}'")
+                # Try to get page content for debugging
+                try:
+                    page_content = await page.content()
+                    self.logger.debug(f"Page content length: {len(page_content)}")
+                    if "captcha" in page_content.lower() or "проверка" in page_content.lower():
+                        self.logger.error(f"CAPTCHA detected on page {page_num} for keyword '{keyword}'")
+                    elif "товар" in page_content.lower() and "не найден" in page_content.lower():
+                        self.logger.info(f"No products found message detected on page {page_num}")
+                    else:
+                        self.logger.debug(f"Page content preview: {page_content[:200]}...")
+                except Exception as e:
+                    self.logger.debug(f"Could not get page content: {e}")
             
             return products
             

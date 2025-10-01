@@ -37,6 +37,7 @@ class RankingServiceImpl(RankingService):
             "successful_searches": 0,
             "failed_searches": 0,
             "total_execution_time": 0.0,
+            "total_position": 0,
             "average_position": 0.0,
             "best_position": None,
             "worst_position": None
@@ -84,7 +85,7 @@ class RankingServiceImpl(RankingService):
             
             # Step 4: Search for product by keywords
             search_results = await self._search_product_by_keywords(
-                product_id, keywords, product_info, max_pages
+                product_id, keywords, max_pages
             )
             
             # Step 5: Calculate statistics
@@ -160,7 +161,7 @@ class RankingServiceImpl(RankingService):
             
             # Step 5: Search for product by keywords
             search_results = await self._search_product_by_keywords(
-                product_id, keywords, product_info
+                product_id, keywords
             )
             
             # Step 6: Calculate statistics
@@ -264,41 +265,23 @@ class RankingServiceImpl(RankingService):
             await self.progress_tracker.send_message("🔍 Получаем информацию о товаре...")
         
         try:
-            # Use a simple search to get product info
-            # This is a placeholder - in real implementation, you might want to
-            # use a different API endpoint or cache this information
-            test_result = await self.search_client.search_product(
-                keyword="тест",  # Simple test keyword
-                product_id=product_id,
-                max_pages=1
-            )
-            
-            if test_result.product:
-                product_info = {
-                    "id": product_id,
-                    "name": test_result.product.name,
-                    "brand": test_result.product.brand,
-                    "price": test_result.product.price_rub
-                }
-            else:
-                product_info = {
-                    "id": product_id,
-                    "name": f"Product {product_id}",
-                    "brand": "Unknown",
-                    "price": 0.0
-                }
-            
-            self.logger.info(f"Product info: {product_info['name']} by {product_info['brand']}")
+            # For now, return basic info without searching
+            # The actual product info will be retrieved during keyword search
+            self.logger.info(f"Using basic product info for ID: {product_id}")
+            product_info = {
+                "id": product_id,
+                "name": f"Product {product_id}",
+                "brand": "Unknown",
+                "price": 0.0
+            }
             
             if self.progress_tracker:
-                await self.progress_tracker.send_message(
-                    f"✅ Товар: {product_info['name']} ({product_info['brand']})"
-                )
+                await self.progress_tracker.send_message(f"ℹ️ Используем базовую информацию для товара {product_id}")
             
             return product_info
             
         except Exception as e:
-            self.logger.warning(f"Could not get detailed product info: {e}")
+            self.logger.warning(f"Could not get product info: {e}")
             return {
                 "id": product_id,
                 "name": f"Product {product_id}",
@@ -310,7 +293,6 @@ class RankingServiceImpl(RankingService):
         self, 
         product_id: int, 
         keywords: List[str], 
-        product_info: dict,
         max_pages: int = None
     ) -> List[SearchResult]:
         """Search for product using all keywords."""
@@ -369,7 +351,9 @@ class RankingServiceImpl(RankingService):
                         )
                         self._stats["successful_searches"] += 1
                         if result.position is not None:
+                            self.logger.debug(f"Adding position {result.position} to total_position (current: {self._stats.get('total_position', 'NOT_INITIALIZED')})")
                             self._stats["total_position"] += result.position
+                            self.logger.debug(f"Updated total_position to: {self._stats['total_position']}")
                     else:
                         self.logger.info(f"Product not found for keyword: '{result.keyword}'")
                         if result.error:
@@ -410,6 +394,9 @@ class RankingServiceImpl(RankingService):
         """Calculate ranking statistics."""
         positions = [r.position for r in search_results if r.position is not None]
         
+        self.logger.debug(f"Calculating statistics from {len(search_results)} results, {len(positions)} with positions")
+        self.logger.debug(f"Current total_position: {self._stats.get('total_position', 'NOT_INITIALIZED')}")
+        
         if positions:
             self._stats["average_position"] = sum(positions) / len(positions)
             self._stats["best_position"] = min(positions)
@@ -417,7 +404,8 @@ class RankingServiceImpl(RankingService):
         
         self.logger.info(
             f"Statistics: avg_pos={self._stats['average_position']:.1f}, "
-            f"best={self._stats['best_position']}, worst={self._stats['worst_position']}"
+            f"best={self._stats['best_position']}, worst={self._stats['worst_position']}, "
+            f"total_pos={self._stats.get('total_position', 'N/A')}"
         )
     
     async def _export_results(self, ranking_result: RankingResult, output_format: str) -> str:
@@ -489,6 +477,7 @@ class RankingServiceImpl(RankingService):
             "successful_searches": 0,
             "failed_searches": 0,
             "total_execution_time": 0.0,
+            "total_position": 0,
             "average_position": 0.0,
             "best_position": None,
             "worst_position": None

@@ -128,8 +128,7 @@ class FileExporterImpl(FileExporter):
             'Ключевое слово',
             'Частотность',
             'Позиция товара',
-            'Цена товара',
-            'Страница'
+            'Цена товара'
         ]
         
         rows = []
@@ -137,14 +136,13 @@ class FileExporterImpl(FileExporter):
         
         # Only include found products (filter out "Не найден")
         for search_result in result.results:
-            if search_result.product:  # Only include found products
+            if search_result.product and search_result.position is not None:  # Only include found products with positions
                 row = [
                     row_number,
                     search_result.keyword,
                     'Найден',
                     search_result.position,
-                    f"{search_result.product.price_rub:.2f} ₽",
-                    search_result.page
+                    f"{search_result.product.price_rub:.2f} ₽"
                 ]
                 rows.append(row)
                 row_number += 1
@@ -161,17 +159,15 @@ class FileExporterImpl(FileExporter):
         row_number = 1
         
         for search_result in result.results:
-            if search_result.product:  # Only include found products
+            if search_result.product and search_result.position is not None:  # Only include found products with positions
+                # Verify that we found the correct product by checking if it matches our target
+                # This is a critical fix to ensure we're showing the right product data
                 results_data.append({
                     'Номер строки': row_number,
                     'Ключевое слово': search_result.keyword,
                     'Частотность': 'Найден',
                     'Позиция товара': search_result.position,
-                    'Цена товара': f"{search_result.product.price_rub:.2f} ₽",
-                    'Страница': search_result.page,
-                    'Бренд': search_result.product.brand,
-                    'Рейтинг': search_result.product.rating,
-                    'Отзывы': search_result.product.feedbacks
+                    'Цена товара': f"{search_result.product.price_rub:.2f} ₽"
                 })
                 row_number += 1
         

@@ -76,25 +76,18 @@ class WBAPIAdapter(SearchClient):
             except Exception as e:
                 last_exception = e
                 
-                self.logger.warning(
-                    f"Search attempt {attempt + 1} failed for keyword '{keyword}'",
-                    keyword=keyword,
-                    product_id=product_id,
-                    attempt=attempt + 1,
-                    error=str(e)
-                )
-                
-                if attempt < self.settings.wb_retry_attempts - 1:
-                    # Calculate backoff delay
-                    delay = self.settings.wb_backoff_factor ** attempt
-                    await asyncio.sleep(delay)
+            self.logger.warning(
+                f"Search attempt {attempt + 1} failed for keyword '{keyword}': {e}"
+            )
+            
+            if attempt < self.settings.wb_retry_attempts - 1:
+                # Calculate backoff delay
+                delay = self.settings.wb_backoff_factor ** attempt
+                await asyncio.sleep(delay)
         
         # All attempts failed
         self.logger.error(
-            f"All search attempts failed for keyword '{keyword}'",
-            keyword=keyword,
-            product_id=product_id,
-            error=str(last_exception)
+            f"All search attempts failed for keyword '{keyword}': {last_exception}"
         )
         
         return SearchResult(
@@ -179,10 +172,7 @@ class WBAPIAdapter(SearchClient):
         
         # Product not found in any page
         self.logger.info(
-            f"Product {product_id} not found in {max_pages} pages",
-            keyword=keyword,
-            product_id=product_id,
-            total_pages_searched=max_pages
+            f"Product {product_id} not found in {max_pages} pages"
         )
         
         return SearchResult(
@@ -223,25 +213,27 @@ class WBAPIAdapter(SearchClient):
             content_type = response.headers.get('content-type', '').lower()
             self.logger.debug(f"Response content type: {content_type}")
             
-            if 'application/json' not in content_type:
-                self.logger.warning(f"Unexpected content type: {content_type}")
-                # Try to parse as JSON anyway
-                try:
-                    data = await response.json()
-                    self.logger.debug(f"Successfully parsed as JSON despite content type")
-                except Exception as e:
-                    self.logger.error(f"Failed to parse response as JSON: {e}")
-                    # Log the actual response content for debugging
-                    try:
-                        text_content = await response.text()
-                        self.logger.debug(f"Response content (first 200 chars): {text_content[:200]}")
-                    except:
-                        pass
-                    # Return empty result
-                    return []
-            else:
+            # Always try to parse as JSON first, regardless of content-type
+            try:
                 data = await response.json()
                 self.logger.debug(f"Successfully parsed JSON response")
+            except Exception as e:
+                self.logger.error(f"Failed to parse response as JSON: {e}")
+                # Log the actual response content for debugging
+                try:
+                    text_content = await response.text()
+                    self.logger.info(f"Response content (first 500 chars): {text_content[:500]}")
+                    # Check if it's a captcha or blocking page
+                    if "captcha" in text_content.lower() or "проверка" in text_content.lower():
+                        self.logger.error("CAPTCHA detected in API response")
+                    elif "blocked" in text_content.lower() or "заблокирован" in text_content.lower():
+                        self.logger.error("Request blocked by WB API")
+                    elif "<!doctype html>" in text_content.lower() or "<html>" in text_content.lower():
+                        self.logger.warning("HTML page returned instead of JSON - possible blocking")
+                except Exception as log_e:
+                    self.logger.error(f"Failed to get response content: {log_e}")
+                # Return empty result
+                return []
             
             return self._parse_products(data)
     
@@ -317,6 +309,11 @@ class WBAPIAdapter(SearchClient):
             
             products_data = data_section.get('products', [])
             self.logger.debug(f"Found {len(products_data)} products in response")
+            
+            # Log first few product IDs for debugging
+            if products_data:
+                first_5_ids = [p.get('id', 'N/A') for p in products_data[:5]]
+                self.logger.debug(f"First 5 product IDs: {first_5_ids}")
             
             for product_data in products_data:
                 try:

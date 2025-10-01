@@ -31,7 +31,7 @@ class Settings(BaseSettings):
         description="Maximum pages to search per keyword"
     )
     wb_concurrency_limit: int = Field(
-        default=3,  # Увеличиваем параллельность
+        default=1,  # Минимальная параллельность для Playwright
         ge=1,
         le=20,
         description="Maximum concurrent requests to WB API"
@@ -55,7 +55,7 @@ class Settings(BaseSettings):
         description="Exponential backoff factor for retries"
     )
     wb_delay_between_requests: tuple[float, float] = Field(
-        default=(0.5, 1.5),  # Уменьшаем задержки
+        default=(5.0, 10.0),  # Задержки для Playwright против капчи
         description="Delay range between requests in seconds (min, max)"
     )
     
@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     
     # Logging Configuration
     log_level: str = Field(
-        default="INFO",
+        default="DEBUG",
         description="Logging level"
     )
     log_format: str = Field(
