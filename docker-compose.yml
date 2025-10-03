@@ -10,16 +10,16 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       
       # WB API configuration
-      - WB_API_BASE_URL=${WB_API_BASE_URL:-https://search.wb.ru/exactmatch/ru/common/v4/search}
+      - WB_API_BASE_URL=${WB_API_BASE_URL:-https://search.wb.ru/exactmatch/ru/common/v5/search}
       - WB_MAX_PAGES=${WB_MAX_PAGES:-5}
-      - WB_CONCURRENCY_LIMIT=${WB_CONCURRENCY_LIMIT:-5}
-      - WB_REQUEST_TIMEOUT=${WB_REQUEST_TIMEOUT:-15}
+      - WB_CONCURRENCY_LIMIT=${WB_CONCURRENCY_LIMIT:-15}
+      - WB_REQUEST_TIMEOUT=${WB_REQUEST_TIMEOUT:-10}
       - WB_RETRY_ATTEMPTS=${WB_RETRY_ATTEMPTS:-3}
       - WB_BACKOFF_FACTOR=${WB_BACKOFF_FACTOR:-2.0}
-      - WB_DELAY_BETWEEN_REQUESTS=${WB_DELAY_BETWEEN_REQUESTS:-0.05,0.2}
+      - WB_DELAY_BETWEEN_REQUESTS=${WB_DELAY_BETWEEN_REQUESTS:-0.5,1.5}
       
       # File processing configuration
-      - MAX_KEYWORDS_LIMIT=${MAX_KEYWORDS_LIMIT:-1000}
+      - MAX_KEYWORDS_LIMIT=${MAX_KEYWORDS_LIMIT:-100000}
       - MAX_EXECUTION_TIME_MINUTES=${MAX_EXECUTION_TIME_MINUTES:-30}
       
       # Logging configuration

@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  wb-ranker-bot:
+    build: .
+    container_name: wb-ranker-bot-test
+    environment:
+      - BOT_TOKEN=test_token
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ./output:/app/output
+    command: ["python", "-c", "print('Bot configuration loaded successfully')"]

@@ -90,12 +90,40 @@ WB_DELAY_BETWEEN_REQUESTS=0.5,1.5  # Задержка между запроса�
 
 ## 🐳 Docker
 
+### Простой запуск
+
 ```bash
 # Сборка образа
 docker build -t wb-ranker-bot .
 
-# Запуск
-docker run -d --name wb-bot --env-file .env wb-ranker-bot
+# Запуск с переменными окружения
+docker run -d --name wb-bot \
+  -e BOT_TOKEN=your_bot_token_here \
+  -v $(pwd)/output:/app/output \
+  wb-ranker-bot
+```
+
+### Docker Compose (рекомендуется)
+
+```bash
+# Запуск только бота
+docker-compose up -d wb-ranker-bot
+
+# Запуск с мониторингом
+docker-compose up -d
+
+# Просмотр логов
+docker-compose logs -f wb-ranker-bot
+```
+
+### Тестирование Docker
+
+```bash
+# Проверка сборки
+docker build -t wb-ranker-bot-test .
+
+# Тест конфигурации
+docker run --rm wb-ranker-bot-test python -c "from app.config import Settings; print('✅ Config OK')"
 ```
 
 ## 📋 Требования

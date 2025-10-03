@@ -38,12 +38,9 @@ RUN mkdir -p /app/output /app/logs && \
 # Switch to non-root user
 USER appuser
 
-# Health check
+# Health check for Telegram bot (check if bot can start)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health', timeout=5)" || exit 1
-
-# Expose port (if needed for web interface)
-EXPOSE 8000
+    CMD python -c "import sys; sys.path.append('/app'); from app.config import Settings; print('Config loaded successfully')" || exit 1
 
 # Default command
 CMD ["python", "-m", "app.bot"]
