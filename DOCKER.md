@@ -13,16 +13,16 @@
 BOT_TOKEN=your_telegram_bot_token
 
 # WB API configuration
-WB_API_BASE_URL=https://search.wb.ru/exactmatch/ru/common/v4/search
+WB_API_BASE_URL=https://search.wb.ru/exactmatch/ru/common/v5/search
 WB_MAX_PAGES=5
-WB_CONCURRENCY_LIMIT=5
-WB_REQUEST_TIMEOUT=15
+WB_CONCURRENCY_LIMIT=15
+WB_REQUEST_TIMEOUT=10
 WB_RETRY_ATTEMPTS=3
 WB_BACKOFF_FACTOR=2.0
-WB_DELAY_BETWEEN_REQUESTS=0.05,0.2
+WB_DELAY_BETWEEN_REQUESTS=0.5,1.5
 
 # File processing configuration
-MAX_KEYWORDS_LIMIT=1000
+MAX_KEYWORDS_LIMIT=100000
 MAX_EXECUTION_TIME_MINUTES=30
 
 # Logging configuration
@@ -115,6 +115,31 @@ make monitor-down
 make health
 ```
 
+### Тестирование Docker
+
+```bash
+# Проверка сборки образа
+docker build -t wb-ranker-bot-test .
+
+# Тест конфигурации
+docker run --rm wb-ranker-bot-test python -c "from app.config import Settings; print('✅ Config OK')"
+
+# Тест с переменными окружения
+docker run --rm -e BOT_TOKEN=test wb-ranker-bot-test python -c "from app.config import Settings; s = Settings(); print(f'✅ Bot token: {s.bot_token[:10]}...')"
+
+# Тест асинхронных функций
+docker run --rm wb-ranker-bot-test python -c "
+import asyncio
+from app.utils import get_product_info
+
+async def test():
+    result = await get_product_info(999999999)
+    print(f'✅ Fallback result: {result.get(\"is_fallback\", False)}')
+
+asyncio.run(test())
+"
+```
+
 ## Структура проекта
 
 ```
@@ -157,9 +182,9 @@ make health
 |------------|----------|--------------|
 | `BOT_TOKEN` | Токен Telegram бота | - |
 | `WB_MAX_PAGES` | Максимум страниц для поиска | 5 |
-| `WB_CONCURRENCY_LIMIT` | Лимит одновременных запросов | 5 |
-| `WB_REQUEST_TIMEOUT` | Таймаут запросов (сек) | 15 |
-| `MAX_KEYWORDS_LIMIT` | Максимум ключевых слов | 1000 |
+| `WB_CONCURRENCY_LIMIT` | Лимит одновременных запросов | 15 |
+| `WB_REQUEST_TIMEOUT` | Таймаут запросов (сек) | 10 |
+| `MAX_KEYWORDS_LIMIT` | Максимум ключевых слов | 100000 |
 | `LOG_LEVEL` | Уровень логирования | INFO |
 | `OUTPUT_DIRECTORY` | Директория для файлов | /app/output |
 
@@ -168,6 +193,9 @@ make health
 #### Production
 - **Memory**: 512MB limit, 256MB reserved
 - **CPU**: 0.5 cores limit, 0.25 cores reserved
+- **Concurrency**: 15 параллельных запросов к WB API
+- **Keywords**: до 100,000 ключевых слов
+- **Performance**: ~5.8 секунд для 8 ключевых слов
 
 #### Development
 - **Memory**: No limits
