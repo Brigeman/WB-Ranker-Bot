@@ -21,23 +21,23 @@ class Settings(BaseSettings):
     
     # WB API Configuration
     wb_api_base_url: str = Field(
-        default="https://search.wb.ru/exactmatch/ru/common/v4/search",
+        default="https://search.wb.ru/exactmatch/ru/common/v5/search",
         description="Wildberries API base URL"
     )
     wb_max_pages: int = Field(
-        default=2,  # Уменьшаем до 2 страниц для ускорения
+        default=5,  # Увеличиваем до 5 страниц как в ТЗ
         ge=1,
         le=10,
         description="Maximum pages to search per keyword"
     )
     wb_concurrency_limit: int = Field(
-        default=1,  # Минимальная параллельность для Playwright
+        default=15,  # Максимальная безопасная параллельность
         ge=1,
         le=20,
         description="Maximum concurrent requests to WB API"
     )
     wb_request_timeout: int = Field(
-        default=15,
+        default=10,  # Уменьшаем для ускорения
         ge=5,
         le=60,
         description="Request timeout in seconds"
@@ -55,7 +55,7 @@ class Settings(BaseSettings):
         description="Exponential backoff factor for retries"
     )
     wb_delay_between_requests: tuple[float, float] = Field(
-        default=(5.0, 10.0),  # Задержки для Playwright против капчи
+        default=(0.5, 1.5),  # Минимальные задержки для API
         description="Delay range between requests in seconds (min, max)"
     )
     

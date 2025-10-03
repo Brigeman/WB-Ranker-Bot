@@ -121,7 +121,7 @@ class RankingServiceImpl(RankingService):
     async def rank_product_by_keywords(
         self,
         product_url: str,
-        keywords_source: str,
+        keywords_source: str | List[str],
         output_format: str = "xlsx"
     ) -> RankingResult:
         """
@@ -232,8 +232,18 @@ class RankingServiceImpl(RankingService):
         
         return product_id
     
-    async def _load_keywords(self, keywords_source: str) -> List[str]:
-        """Load keywords from file or URL."""
+    async def _load_keywords(self, keywords_source: str | List[str]) -> List[str]:
+        """Load keywords from file, URL, or use provided list."""
+        if isinstance(keywords_source, list):
+            # Keywords are already provided as a list
+            self.logger.info(f"Using provided keywords list: {len(keywords_source)} keywords")
+            
+            if self.progress_tracker:
+                await self.progress_tracker.send_message(f"✅ Используем отфильтрованные ключевые слова: {len(keywords_source)}")
+            
+            return keywords_source
+        
+        # Original logic for string sources
         self.logger.info(f"Loading keywords from: {keywords_source}")
         
         if self.progress_tracker:

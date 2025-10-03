@@ -75,10 +75,9 @@ class WBAPIAdapter(SearchClient):
                 return await self._search_product_pages(keyword, product_id, max_pages)
             except Exception as e:
                 last_exception = e
-                
-            self.logger.warning(
-                f"Search attempt {attempt + 1} failed for keyword '{keyword}': {e}"
-            )
+                self.logger.warning(
+                    f"Search attempt {attempt + 1} failed for keyword '{keyword}': {e}"
+                )
             
             if attempt < self.settings.wb_retry_attempts - 1:
                 # Calculate backoff delay
@@ -107,10 +106,7 @@ class WBAPIAdapter(SearchClient):
     ) -> SearchResult:
         """Search product across multiple pages."""
         self.logger.debug(
-            f"Searching product {product_id} for keyword '{keyword}'",
-            keyword=keyword,
-            product_id=product_id,
-            max_pages=max_pages
+            f"Searching product {product_id} for keyword '{keyword}' (max_pages={max_pages})"
         )
         
         for page in range(1, max_pages + 1):
@@ -136,12 +132,7 @@ class WBAPIAdapter(SearchClient):
                         position = calculate_position(page, index)
                         
                         self.logger.info(
-                            f"Found product {product_id} at position {position}",
-                            keyword=keyword,
-                            product_id=product_id,
-                            position=position,
-                            page=page,
-                            index=index
+                            f"Found product {product_id} at position {position} (keyword='{keyword}', page={page}, index={index})"
                         )
                         
                         return SearchResult(
@@ -153,20 +144,12 @@ class WBAPIAdapter(SearchClient):
                         )
                 
                 self.logger.debug(
-                    f"Product {product_id} not found on page {page}",
-                    keyword=keyword,
-                    product_id=product_id,
-                    page=page,
-                    products_found=len(products)
+                    f"Product {product_id} not found on page {page} (keyword='{keyword}', products_found={len(products)})"
                 )
                 
             except Exception as e:
                 self.logger.error(
-                    f"Error searching page {page} for keyword '{keyword}'",
-                    keyword=keyword,
-                    product_id=product_id,
-                    page=page,
-                    error=str(e)
+                    f"Error searching page {page} for keyword '{keyword}' (product_id={product_id}): {e}"
                 )
                 raise
         
@@ -188,10 +171,7 @@ class WBAPIAdapter(SearchClient):
         url = self._build_search_url(keyword, page)
         
         self.logger.debug(
-            f"Searching page {page} for keyword '{keyword}'",
-            keyword=keyword,
-            page=page,
-            url=url
+            f"Searching page {page} for keyword '{keyword}' (url={url})"
         )
         
         async with self.session.get(url, headers={
@@ -213,15 +193,15 @@ class WBAPIAdapter(SearchClient):
             content_type = response.headers.get('content-type', '').lower()
             self.logger.debug(f"Response content type: {content_type}")
             
-            # Always try to parse as JSON first, regardless of content-type
+            # Parse response as JSON (force parsing even if content-type is text/plain)
             try:
-                data = await response.json()
+                text_content = await response.text()
+                data = json.loads(text_content)
                 self.logger.debug(f"Successfully parsed JSON response")
             except Exception as e:
                 self.logger.error(f"Failed to parse response as JSON: {e}")
                 # Log the actual response content for debugging
                 try:
-                    text_content = await response.text()
                     self.logger.info(f"Response content (first 500 chars): {text_content[:500]}")
                     # Check if it's a captcha or blocking page
                     if "captcha" in text_content.lower() or "проверка" in text_content.lower():
@@ -239,7 +219,7 @@ class WBAPIAdapter(SearchClient):
     
     def _build_search_url(self, keyword: str, page: int) -> str:
         """Build search URL with parameters."""
-        # Use the public search API endpoint
+        # Use the working v5 search API endpoint
         params = {
             'query': keyword,
             'page': page,
@@ -247,14 +227,14 @@ class WBAPIAdapter(SearchClient):
             'locale': 'ru',
             'lang': 'ru',
             'curr': 'rub',
-            'dest': '-1257786',
+            'dest': '-1257786',  # Working dest parameter
             'appType': '1',
             'resultset': 'catalog'
         }
         
         query_string = urlencode(params)
-        # Use the public search endpoint
-        return f"https://search.wb.ru/exactmatch/ru/common/v4/search?{query_string}"
+        # Use the working v5 search endpoint
+        return f"https://search.wb.ru/exactmatch/ru/common/v5/search?{query_string}"
     
     async def _handle_response_error(self, response: aiohttp.ClientResponse):
         """Handle HTTP response errors."""
@@ -267,9 +247,7 @@ class WBAPIAdapter(SearchClient):
             wait_time = int(retry_after)
             
             self.logger.warning(
-                f"Rate limited, waiting {wait_time} seconds",
-                status=response.status,
-                retry_after=wait_time
+                f"Rate limited, waiting {wait_time} seconds (status={response.status})"
             )
             
             await asyncio.sleep(wait_time)
@@ -278,18 +256,14 @@ class WBAPIAdapter(SearchClient):
         elif response.status >= 500:
             # Server error - retry
             self.logger.error(
-                f"Server error: {response.status}",
-                status=response.status,
-                url=str(response.url)
+                f"Server error: {response.status} (url={str(response.url)})"
             )
             raise ClientError(f"Server error: {response.status}")
         
         elif response.status >= 400:
             # Client error - don't retry
             self.logger.error(
-                f"Client error: {response.status}",
-                status=response.status,
-                url=str(response.url)
+                f"Client error: {response.status} (url={str(response.url)})"
             )
             raise ClientError(f"Client error: {response.status}")
         
@@ -317,10 +291,26 @@ class WBAPIAdapter(SearchClient):
             
             for product_data in products_data:
                 try:
+                    # Get price from sizes field
+                    price_kopecks = 0
+                    sizes = product_data.get('sizes', [])
+                    if sizes and isinstance(sizes, list) and len(sizes) > 0:
+                        first_size = sizes[0]
+                        if isinstance(first_size, dict) and 'price' in first_size:
+                            price_info = first_size['price']
+                            # Prefer 'product' price, fallback to 'total', then 'basic'
+                            price_kopecks = (price_info.get('product') or 
+                                            price_info.get('total') or 
+                                            price_info.get('basic') or 0)
+                    
+                    # Fallback to direct price fields if sizes don't have price
+                    if price_kopecks == 0:
+                        price_kopecks = product_data.get('salePriceU') or product_data.get('priceU', 0)
+                    
                     product = Product(
                         id=product_data['id'],
                         name=product_data.get('name', ''),
-                        price_rub=format_price(product_data.get('salePriceU', 0)),
+                        price_rub=format_price(price_kopecks),
                         brand=product_data.get('brand', ''),
                         rating=product_data.get('reviewRating', 0.0),
                         feedbacks=product_data.get('feedbacks', 0)
@@ -329,24 +319,19 @@ class WBAPIAdapter(SearchClient):
                     
                 except (KeyError, ValueError, TypeError) as e:
                     self.logger.warning(
-                        f"Failed to parse product data: {e}",
-                        product_data=product_data,
-                        error=str(e)
+                        f"Failed to parse product data: {e} (product_data={product_data})"
                     )
                     continue
             
             self.logger.debug(
-                f"Parsed {len(products)} products from API response",
-                products_count=len(products)
+                f"Parsed {len(products)} products from API response"
             )
             
             return products
             
         except (KeyError, ValueError, TypeError) as e:
             self.logger.error(
-                f"Failed to parse API response: {e}",
-                data=data,
-                error=str(e)
+                f"Failed to parse API response: {e} (data={data})"
             )
             raise ValueError(f"Invalid API response format: {e}")
     

@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -14,10 +14,14 @@ from telegram.ext import (
 from app.config import Settings
 from app.ports import Logger, ProgressTracker
 from app.services import RankingServiceImpl
-from app.wb_playwright_adapter import WBPlaywrightAdapter
+from app.wb_adapter import WBAPIAdapter
 from app.fileio import FileLoaderImpl
 from app.exporter import FileExporterImpl
-from app.utils import WBURLParser
+from app.utils import (
+    WBURLParser, format_price,
+    get_product_info, extract_keywords_from_product, 
+    filter_keywords_by_relevance, categorize_keywords
+)
 
 
 class TelegramProgressTracker(ProgressTracker):
@@ -323,7 +327,7 @@ class WBRankerBot:
         """Handle /status command."""
         try:
             # Check WB API health
-            async with WBPlaywrightAdapter(self.settings, self.logger) as wb_adapter:
+            async with WBAPIAdapter(self.settings, self.logger) as wb_adapter:
                 api_healthy = await wb_adapter.health_check()
             
             status_text = f"""
@@ -379,19 +383,27 @@ class WBRankerBot:
             parser = WBURLParser()
             if not parser.validate_wb_url(url):
                 await update.message.reply_text(
-                    "❌ Неверная ссылка на товар Wildberries.\n\n"
-                    "Поддерживаемые форматы:\n"
-                    "• https://wildberries.ru/catalog/ID/detail.aspx\n"
-                    "• https://www.wildberries.ru/catalog/ID/detail.aspx",
+                    f"❌ <b>Неверная ссылка!</b>\n\n"
+                    f"🔗 <b>Вы отправили:</b> {url[:50]}...\n\n"
+                    f"📝 <b>Пожалуйста, отправьте ссылку на товар Wildberries:</b>\n"
+                    f"• https://www.wildberries.ru/catalog/123456/detail.aspx\n"
+                    f"• https://wildberries.ru/catalog/123456/detail.aspx\n\n"
+                    f"⚠️ <b>Не отправляйте:</b>\n"
+                    f"• Ссылки на Google Drive\n"
+                    f"• Ссылки на другие сайты\n"
+                    f"• Файлы с ключевыми словами (их нужно отправить после ссылки на товар)",
                     parse_mode='HTML'
                 )
                 return
             
             # Extract product ID
-            product_id = parser.extract_product_id(url)
-            if not product_id:
+            try:
+                product_id = parser.extract_product_id(url)
+            except ValueError as e:
                 await update.message.reply_text(
-                    "❌ Не удалось извлечь ID товара из ссылки",
+                    f"❌ <b>Ошибка извлечения ID товара!</b>\n\n"
+                    f"📝 <b>Ошибка:</b> {str(e)}\n\n"
+                    f"🔗 <b>Проверьте правильность ссылки на товар Wildberries</b>",
                     parse_mode='HTML'
                 )
                 return
@@ -458,8 +470,8 @@ class WBRankerBot:
                 parse_mode='HTML'
             )
             
-            # Start ranking process
-            await self._start_ranking_process(update, context, user_id)
+            # Start ranking process with filtering
+            await self._start_ranking_process_with_file(update, context, user_id)
             
         except Exception as e:
             self.logger.error(f"Error handling document: {e}")
@@ -569,7 +581,7 @@ class WBRankerBot:
             progress_tracker = TelegramProgressTracker(update, context)
             
             # Initialize search client
-            async with WBPlaywrightAdapter(self.settings, self.logger) as search_client:
+            async with WBAPIAdapter(self.settings, self.logger) as search_client:
                 # Update ranking service with search client
                 self.ranking_service.search_client = search_client
                 self.ranking_service.progress_tracker = progress_tracker
@@ -601,6 +613,180 @@ class WBRankerBot:
                         pass
                 del self.active_sessions[user_id]
     
+    async def _analyze_and_filter_keywords(self, update: Update, context: ContextTypes.DEFAULT_TYPE, 
+                                         product_url: str, file_source: str) -> List[str]:
+        """Analyze product and filter keywords from file."""
+        try:
+            # Extract product ID from URL
+            parser = WBURLParser()
+            try:
+                product_id = parser.extract_product_id(product_url)
+            except ValueError as e:
+                await update.message.reply_text(
+                    f"❌ <b>Неверная ссылка!</b>\n\n"
+                    f"📝 <b>Ошибка:</b> {str(e)}\n\n"
+                    f"🔗 <b>Пожалуйста, отправьте ссылку на товар Wildberries:</b>\n"
+                    f"• https://www.wildberries.ru/catalog/123456/detail.aspx\n"
+                    f"• https://wildberries.ru/catalog/123456/detail.aspx\n\n"
+                    f"📁 <b>После этого отправьте файл с ключевыми словами</b>",
+                    parse_mode='HTML'
+                )
+                return []
+            
+            # Send analysis start message
+            analysis_msg = await update.message.reply_text(
+                "🔍 <b>Анализируем товар и фильтруем ключевые слова...</b>\n\n"
+                f"📦 ID товара: {product_id}\n"
+                "⏳ Получаем информацию о товаре...",
+                parse_mode='HTML'
+            )
+            
+            # Get product information
+            self.logger.info(f"Getting product info for ID: {product_id}")
+            product_info = await get_product_info(product_id)
+            
+            # Check if we got real product info or fallback
+            is_fallback = product_info.get('is_fallback', False) or (
+                product_info.get('name', '').startswith('Товар ') and 
+                product_info.get('brand') == 'Неизвестно'
+            )
+            
+            if is_fallback:
+                self.logger.warning(f"Using fallback product info for ID: {product_id}")
+                await analysis_msg.edit_text(
+                    f"⚠️ <b>Товар не найден в популярных категориях</b>\n\n"
+                    f"📦 ID товара: {product_id}\n"
+                    f"🔄 <b>Используем все ключевые слова без фильтрации</b>\n\n"
+                    f"⏳ Загружаем файл с ключевыми словами...",
+                    parse_mode='HTML'
+                )
+            else:
+                self.logger.info(f"Product info retrieved: {product_info.get('name', 'N/A')}")
+                
+                await analysis_msg.edit_text(
+                    f"✅ <b>Товар найден!</b>\n\n"
+                    f"📦 <b>Название:</b> {product_info.get('name', 'N/A')}\n"
+                    f"🏷️ <b>Бренд:</b> {product_info.get('brand', 'N/A')}\n"
+                    f"📂 <b>Категория:</b> {product_info.get('subject', 'N/A')}\n\n"
+                    f"⏳ Загружаем файл с ключевыми словами...",
+                    parse_mode='HTML'
+                )
+            
+            # Load keywords from file or URL
+            if file_source.startswith(('http://', 'https://')):
+                keywords = await self.file_loader.load_keywords_from_url(file_source)
+            else:
+                keywords = await self.file_loader.load_keywords_from_file(file_source)
+            
+            if not keywords:
+                await analysis_msg.edit_text(
+                    "❌ Не удалось загрузить ключевые слова из файла",
+                    parse_mode='HTML'
+                )
+                return []
+            
+            # Handle filtering based on whether we have real product info
+            if is_fallback:
+                # Use limited keywords without filtering to avoid long processing
+                max_fallback_keywords = 1000  # Ограничиваем количество ключевых слов
+                relevant_keywords = keywords[:max_fallback_keywords]
+                
+                await analysis_msg.edit_text(
+                    f"📁 <b>Файл загружен!</b>\n\n"
+                    f"📊 <b>Всего ключевых слов:</b> {len(keywords)}\n"
+                    f"⚠️ <b>Товар не найден в популярных категориях</b>\n"
+                    f"🔄 <b>Используем первые {max_fallback_keywords} ключевых слов</b>\n"
+                    f"⏱️ <b>Это займет примерно {max_fallback_keywords * 0.5 / 60:.1f} минут</b>\n\n"
+                    f"🚀 <b>Начинаем поиск...</b>",
+                    parse_mode='HTML'
+                )
+            else:
+                # Extract keywords from product and filter
+                product_keywords = extract_keywords_from_product(product_info)
+                
+                await analysis_msg.edit_text(
+                    f"📁 <b>Файл загружен!</b>\n\n"
+                    f"📊 <b>Всего ключевых слов:</b> {len(keywords)}\n"
+                    f"🔑 <b>Ключевые слова товара:</b> {', '.join(product_keywords[:5])}...\n"
+                    f"🔍 <b>Фильтруем по релевантности...</b>",
+                    parse_mode='HTML'
+                )
+                
+                # Filter keywords by relevance
+                self.logger.info(f"Filtering {len(keywords)} keywords against product keywords: {product_keywords}")
+                relevant_keywords = filter_keywords_by_relevance(keywords, product_keywords)
+                self.logger.info(f"After filtering: {len(relevant_keywords)} relevant keywords")
+                
+                # Calculate efficiency
+                efficiency = ((len(keywords) - len(relevant_keywords)) / len(keywords) * 100) if keywords else 0
+                
+                await analysis_msg.edit_text(
+                    f"🎯 <b>Фильтрация завершена!</b>\n\n"
+                    f"📊 <b>Статистика:</b>\n"
+                    f"   • Исходно: {len(keywords)} ключевых слов\n"
+                    f"   • После фильтрации: {len(relevant_keywords)} ключевых слов\n"
+                    f"   • Сокращение: {efficiency:.1f}%\n\n"
+                    f"🚀 <b>Начинаем поиск по релевантным ключевым словам...</b>",
+                    parse_mode='HTML'
+                )
+            
+            return relevant_keywords
+            
+        except Exception as e:
+            self.logger.error(f"Error in keyword analysis and filtering: {e}")
+            await update.message.reply_text(
+                f"❌ Ошибка при анализе и фильтрации: {e}",
+                parse_mode='HTML'
+            )
+            return []
+    
+    async def _start_ranking_process_with_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+        """Start the ranking process with file filtering."""
+        try:
+            session = self.active_sessions[user_id]
+            product_url = session['product_url']
+            keywords_file = session['keywords_file']
+            
+            # Analyze product and filter keywords
+            relevant_keywords = await self._analyze_and_filter_keywords(update, context, product_url, keywords_file)
+            
+            if not relevant_keywords:
+                await update.message.reply_text(
+                    "❌ Не удалось получить релевантные ключевые слова",
+                    parse_mode='HTML'
+                )
+                return
+            
+            # Create progress tracker
+            progress_tracker = TelegramProgressTracker(update, context)
+            
+            # Initialize search client
+            async with WBAPIAdapter(self.settings, self.logger) as search_client:
+                # Update ranking service with search client
+                self.ranking_service.search_client = search_client
+                self.ranking_service.progress_tracker = progress_tracker
+                
+                # Start ranking with filtered keywords
+                result = await self.ranking_service.rank_product_by_keywords(
+                    product_url=product_url,
+                    keywords_source=relevant_keywords,  # Use filtered keywords instead of file path
+                    output_format="xlsx"
+                )
+                
+                # Send results
+                await self._send_ranking_results(update, context, result)
+                
+        except Exception as e:
+            self.logger.error(f"Error in ranking process with file: {e}")
+            await update.message.reply_text(
+                f"❌ Ошибка при анализе: {e}",
+                parse_mode='HTML'
+            )
+        finally:
+            # Cleanup
+            if user_id in self.active_sessions:
+                del self.active_sessions[user_id]
+
     async def _start_ranking_process_with_url(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
         """Start the ranking process with file URL."""
         try:
@@ -608,19 +794,29 @@ class WBRankerBot:
             product_url = session['product_url']
             file_url = session['file_url']
             
+            # Analyze product and filter keywords
+            relevant_keywords = await self._analyze_and_filter_keywords(update, context, product_url, file_url)
+            
+            if not relevant_keywords:
+                await update.message.reply_text(
+                    "❌ Не удалось получить релевантные ключевые слова",
+                    parse_mode='HTML'
+                )
+                return
+            
             # Create progress tracker
             progress_tracker = TelegramProgressTracker(update, context)
             
             # Initialize search client
-            async with WBPlaywrightAdapter(self.settings, self.logger) as search_client:
+            async with WBAPIAdapter(self.settings, self.logger) as search_client:
                 # Update ranking service with search client
                 self.ranking_service.search_client = search_client
                 self.ranking_service.progress_tracker = progress_tracker
                 
-                # Start ranking with URL
+                # Start ranking with filtered keywords
                 result = await self.ranking_service.rank_product_by_keywords(
                     product_url=product_url,
-                    keywords_source=file_url,
+                    keywords_source=relevant_keywords,  # Use filtered keywords instead of file URL
                     output_format="xlsx"
                 )
                 

@@ -2,7 +2,9 @@
 
 import re
 import time
-from typing import Optional, Tuple
+import aiohttp
+import json
+from typing import Optional, Tuple, List, Dict, Any
 from urllib.parse import urlparse, parse_qs
 
 from app.ports import URLParser
@@ -110,6 +112,8 @@ def format_price(price_kopecks: int) -> float:
     Returns:
         Price in rubles
     """
+    if price_kopecks is None:
+        return 0.0
     return price_kopecks / 100.0
 
 
@@ -348,3 +352,206 @@ def create_progress_message(current: int, total: int, message: str = "") -> str:
         progress_msg += f" - {message}"
     
     return progress_msg
+
+
+async def search_by_term(product_id: int, search_term: str, max_pages: int = 3) -> Optional[Dict[str, Any]]:
+    """Search for a specific product by term in WB API."""
+    try:
+        search_url = "https://search.wb.ru/exactmatch/ru/common/v5/search"
+        
+        # Ищем на нескольких страницах
+        for page in range(1, max_pages + 1):
+            params = {
+                'appType': '1',
+                'curr': 'rub',
+                'dest': '-1257786',
+                'query': search_term,
+                'resultset': 'catalog',
+                'sort': 'popular',
+                'spp': '30',
+                'suppressSpellcheck': 'false',
+                'page': str(page)
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(search_url, params=params) as response:
+                    if response.status == 200:
+                        # Принудительно читаем как текст и парсим как JSON
+                        text_content = await response.text()
+                        data = json.loads(text_content)
+                        if 'data' in data and 'products' in data['data']:
+                            # Find product with matching ID
+                            for product in data['data']['products']:
+                                if product.get('id') == product_id:
+                                    return product
+    except Exception:
+        pass
+    
+    return None
+
+
+async def get_product_info(product_id: int) -> Optional[Dict[str, Any]]:
+    """Universal product info retrieval with multiple strategies."""
+    
+    # Стратегия 1: Популярные категории (быстрый поиск)
+    popular_terms = [
+        # Электроника
+        'смартфон', 'телефон', 'ноутбук', 'планшет', 'наушники', 'зарядка',
+        # Одежда
+        'кофта', 'свитер', 'джемпер', 'толстовка', 'футболка', 'джинсы', 'платье', 'куртка', 'обувь', 'сумка',
+        # Красота
+        'косметика', 'крем', 'парфюм', 'шампунь', 'маска',
+        # Дом
+        'мебель', 'декор', 'кухня', 'спальня', 'ванная', 'освещение',
+        # Дети
+        'игрушка', 'детский', 'книга', 'развитие',
+        # Спорт
+        'спорт', 'фитнес', 'кроссовки', 'тренировка',
+        # Книги
+        'литература', 'учебник', 'журнал',
+        # Авто
+        'авто', 'машина', 'запчасти', 'масло', 'шины',
+        # Еда
+        'еда', 'продукты', 'напитки', 'сладости', 'кофе'
+    ]
+    
+    # Поиск в популярных категориях
+    for term in popular_terms:
+        product_info = await search_by_term(product_id, term)
+        if product_info:
+            return product_info
+    
+    # Стратегия 2: Универсальные термины
+    generic_terms = ['товар', 'продукт', 'вещь', 'предмет', 'изделие']
+    for term in generic_terms:
+        product_info = await search_by_term(product_id, term)
+        if product_info:
+            return product_info
+    
+    # Стратегия 3: Fallback - базовая информация
+    # Возвращаем базовую информацию, чтобы бот мог продолжить работу
+    # без фильтрации ключевых слов
+    return {
+        'id': product_id,
+        'name': f'Товар {product_id}',
+        'brand': 'Неизвестно',
+        'subject': 'Общая категория',
+        'subj_name': 'Товары',
+        'is_fallback': True  # Флаг для определения fallback случая
+    }
+
+
+def extract_keywords_from_product(product_info: Dict[str, Any]) -> List[str]:
+    """Extract relevant keywords from product information."""
+    keywords = []
+    
+    # Basic product info
+    if 'name' in product_info:
+        name = product_info['name'].lower()
+        # Extract words from product name
+        words = re.findall(r'\b\w+\b', name)
+        keywords.extend(words)
+    
+    if 'brand' in product_info:
+        keywords.append(product_info['brand'].lower())
+    
+    if 'subject' in product_info:
+        keywords.append(product_info['subject'].lower())
+    
+    if 'subj_name' in product_info:
+        keywords.append(product_info['subj_name'].lower())
+    
+    # Remove duplicates and filter
+    keywords = list(set(keywords))
+    keywords = [k for k in keywords if len(k) > 2 and k not in ['для', 'женский', 'мужской', 'детский']]
+    
+    return keywords
+
+
+def filter_keywords_by_relevance(
+    all_keywords: List[str], 
+    product_keywords: List[str], 
+    threshold: float = 0.3
+) -> List[str]:
+    """Filter keywords by relevance to product using dynamic similarity."""
+    relevant_keywords = []
+    
+    # Create normalized product terms
+    product_terms = set()
+    for keyword in product_keywords:
+        normalized = keyword.lower().strip()
+        product_terms.add(normalized)
+        # Add individual words
+        for word in normalized.split():
+            if len(word) > 2:
+                product_terms.add(word)
+    
+    def calculate_similarity(word1: str, word2: str) -> float:
+        """Calculate similarity between two words."""
+        word1, word2 = word1.lower(), word2.lower()
+        
+        # Exact match
+        if word1 == word2:
+            return 1.0
+        
+        # One contains the other
+        if word1 in word2 or word2 in word1:
+            return 0.8
+        
+        # Common words
+        common_words = set(word1.split()) & set(word2.split())
+        if common_words:
+            return len(common_words) / max(len(word1.split()), len(word2.split()))
+        
+        # Character similarity (simple Jaccard)
+        chars1, chars2 = set(word1), set(word2)
+        if chars1 and chars2:
+            intersection = len(chars1 & chars2)
+            union = len(chars1 | chars2)
+            return intersection / union if union > 0 else 0
+        
+        return 0
+    
+    for keyword in all_keywords:
+        keyword_lower = keyword.lower().strip()
+        
+        # Skip very short keywords
+        if len(keyword_lower) < 3:
+            continue
+        
+        max_similarity = 0
+        for product_term in product_terms:
+            similarity = calculate_similarity(keyword_lower, product_term)
+            max_similarity = max(max_similarity, similarity)
+        
+        # Add keyword if similarity exceeds threshold
+        if max_similarity >= threshold:
+            relevant_keywords.append(keyword)
+    
+    return relevant_keywords
+
+
+def categorize_keywords(keywords: List[str]) -> Dict[str, List[str]]:
+    """Categorize keywords dynamically based on common patterns."""
+    categories = {
+        'exact_matches': [],
+        'partial_matches': [],
+        'related_terms': [],
+        'other': []
+    }
+    
+    # This is now just for organization, not hardcoded categories
+    for keyword in keywords:
+        keyword_lower = keyword.lower()
+        
+        # Simple categorization based on length and content
+        if len(keyword_lower) <= 10:
+            categories['exact_matches'].append(keyword)
+        elif len(keyword_lower) <= 20:
+            categories['partial_matches'].append(keyword)
+        elif any(char.isdigit() for char in keyword_lower):
+            categories['related_terms'].append(keyword)
+        else:
+            categories['other'].append(keyword)
+    
+    return categories
